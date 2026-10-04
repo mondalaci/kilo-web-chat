@@ -120,7 +120,7 @@ watch(
         @focus="selectDisplayValue"
         @click="selectDisplayValue"
       />
-      <kbd v-if="shortcutsVisible" class="kbd">P</kbd>
+      <kbd v-if="shortcutsVisible" class="kbd floating">P</kbd>
       <ComboboxTrigger class="kilo-project-chevron" aria-label="Switch project (Alt+P)">
         <ChevronDown :size="14" />
       </ComboboxTrigger>
@@ -153,6 +153,7 @@ watch(
 <!-- Unscoped: Reka's teleported content does not receive scoped-style attributes. -->
 <style>
 .kilo-project-anchor {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;

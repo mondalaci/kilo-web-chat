@@ -1,7 +1,7 @@
 import { computed, ref } from "vue"
 import type { ServerClient } from "@/api/client"
 import { normalizeOrigin } from "@/api/discovery"
-import type { Agent, Command, Model, ModelRef, PathInfo, Project, Provider, ServerConfig } from "@/api/types"
+import type { Agent, Command, Model, ModelRef, ModelState, PathInfo, Project, Provider, ServerConfig } from "@/api/types"
 
 const PREFS_KEY = "kilo-web-chat.prefs"
 
@@ -57,6 +57,7 @@ const providers = ref<Provider[]>([])
 const connectedProviderIDs = ref<string[]>([])
 const commands = ref<Command[]>([])
 const projects = ref<Project[]>([])
+const modelState = ref<ModelState | null>(null)
 const selectedDirectory = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -107,11 +108,28 @@ export function useServer() {
     const cfg = config.value
     const defaults = prefs.value[origin.value ?? ""] ?? {}
     selectedAgent.value = defaults.agent ?? cfg?.default_agent ?? modes.value[0]?.name ?? "code"
-    selectedModel.value =
-      defaults.model ??
-      parseModelString(cfg?.model) ??
-      selectedAgentInfo.value?.model ??
-      null
+    selectedModel.value = resolveDefaultModel()
+  }
+
+  /**
+   * Resolve the same default the server would use when a prompt omits a model:
+   * saved pref → agent model → model-state for the agent → config.model → the
+   * first recent model whose provider is loaded.
+   */
+  function resolveDefaultModel(): ModelRef | null {
+    const defaults = prefs.value[origin.value ?? ""] ?? {}
+    if (defaults.model) return defaults.model
+    const agentModel = selectedAgentInfo.value?.model
+    if (agentModel) return agentModel
+    const agentState = modelState.value?.model?.[selectedAgent.value]
+    if (agentState) return agentState
+    const cfgModel = parseModelString(config.value?.model)
+    if (cfgModel) return cfgModel
+    for (const ref of modelState.value?.recent ?? []) {
+      const provider = providers.value.find((item) => item.id === ref.providerID)
+      if (provider?.models?.[ref.modelID]) return ref
+    }
+    return null
   }
 
   async function load(client: ServerClient, instanceOrigin: string, directory?: string) {
@@ -125,12 +143,13 @@ export function useServer() {
       const dir = directory ?? path?.worktree ?? path?.directory ?? undefined
       selectedDirectory.value = dir ?? null
 
-      const [cfg, agentList, providerList, commandList, projectList] = await Promise.all([
+      const [cfg, agentList, providerList, commandList, projectList, state] = await Promise.all([
         client.config({ directory: dir }).catch(() => null),
         client.agents({ directory: dir }).catch(() => [] as Agent[]),
         client.providers({ directory: dir }).catch(() => null),
         client.commands({ directory: dir }).catch(() => [] as Command[]),
         client.projects().catch(() => [] as Project[]),
+        client.modelState({ directory: dir }).catch(() => null),
       ])
       config.value = cfg
       agents.value = agentList
@@ -138,6 +157,7 @@ export function useServer() {
       connectedProviderIDs.value = providerList?.connected ?? []
       commands.value = commandList
       projects.value = projectList
+      modelState.value = state
       // Don't clobber the current agent/model when only switching project.
       if (changedOrigin || !selectedModel.value) applyDefaults()
     } catch (err) {
@@ -160,6 +180,7 @@ export function useServer() {
     connectedProviderIDs.value = []
     commands.value = []
     projects.value = []
+    modelState.value = null
     selectedDirectory.value = null
     selectedModel.value = null
   }

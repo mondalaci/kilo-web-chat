@@ -202,9 +202,9 @@ function costColor(model: Model): string | undefined {
         @click="selectDisplayValue"
       />
       <ComboboxTrigger class="kilo-model-chevron" aria-label="Toggle models (Alt+M)">
-        <kbd v-if="shortcutsVisible" class="kbd">M</kbd>
         <ChevronDown :size="14" />
       </ComboboxTrigger>
+      <kbd v-if="shortcutsVisible" class="kbd floating">M</kbd>
     </ComboboxAnchor>
 
     <ComboboxPortal>
@@ -269,6 +269,7 @@ function costColor(model: Model): string | undefined {
 <!-- Unscoped: Reka's teleported content does not receive scoped-style attributes. -->
 <style>
 .kilo-model-anchor {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -291,7 +292,10 @@ function costColor(model: Model): string | undefined {
   flex: none;
 }
 .kilo-model-input {
-  width: 130px;
+  width: auto;
+  min-width: 96px;
+  max-width: 360px;
+  field-sizing: content;
   border: none;
   outline: none;
   background: transparent;

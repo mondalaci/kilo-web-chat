@@ -342,6 +342,14 @@ export interface Project {
   sandboxes?: string[]
 }
 
+export interface ModelState {
+  /** Per-agent chosen model. */
+  model: Record<string, ModelRef>
+  recent: ModelRef[]
+  favorite: ModelRef[]
+  variant: Record<string, string>
+}
+
 /* -------------------------------------------------------------------------- */
 /* Events                                                                     */
 /* -------------------------------------------------------------------------- */

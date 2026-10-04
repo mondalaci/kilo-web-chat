@@ -4,6 +4,7 @@ import type {
   GlobalHealth,
   MessageWithParts,
   ModelRef,
+  ModelState,
   PathInfo,
   Project,
   ProviderList,
@@ -121,6 +122,10 @@ export class ServerClient {
 
   providers(opts: RequestOptions = {}) {
     return this.request<ProviderList>("/provider", opts)
+  }
+
+  modelState(opts: RequestOptions = {}) {
+    return this.request<ModelState>("/config/model-state", opts)
   }
 
   commands(opts: RequestOptions = {}) {

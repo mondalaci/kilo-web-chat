@@ -1,24 +1,76 @@
 <script setup lang="ts">
-import { ref, watch } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import {
-  SelectContent,
-  SelectIcon,
-  SelectItem,
-  SelectItemIndicator,
-  SelectItemText,
-  SelectPortal,
-  SelectRoot,
-  SelectTrigger,
-  SelectValue,
-  SelectViewport,
+  ComboboxAnchor,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxItemIndicator,
+  ComboboxPortal,
+  ComboboxRoot,
+  ComboboxTrigger,
+  ComboboxViewport,
 } from "reka-ui"
 import { Check, ChevronDown, Sparkles } from "lucide-vue-next"
 import { useServer } from "@/stores/server"
 import { openRequests, shortcutsVisible } from "@/stores/shortcuts"
 
-const { modes, selectedAgent } = useServer()
+const { modes, selectedAgent, setAgent } = useServer()
 
 const open = ref(false)
+const query = ref("")
+const inputRef = ref<unknown>(null)
+
+const selectedKey = computed<string>({
+  get: () => selectedAgent.value,
+  set: (value) => {
+    if (!value || value === selectedAgent.value) return
+    setAgent(value)
+    open.value = false
+  },
+})
+
+function displayValue(name: string) {
+  const agent = modes.value.find((item) => item.name === name)
+  return agent?.displayName ?? name
+}
+
+const filtered = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  if (!q) return modes.value
+  return modes.value.filter(
+    (agent) =>
+      agent.name.toLowerCase().includes(q) ||
+      (agent.displayName ?? "").toLowerCase().includes(q) ||
+      (agent.description ?? "").toLowerCase().includes(q),
+  )
+})
+
+function inputNode(): HTMLInputElement | null {
+  const value = inputRef.value as { $el?: unknown } | HTMLInputElement | null
+  return ((value && "$el" in value ? value.$el : value) ?? null) as HTMLInputElement | null
+}
+
+function onInput(event: Event) {
+  query.value = (event.target as HTMLInputElement).value
+}
+
+function selectDisplayValue() {
+  if (query.value) return
+  requestAnimationFrame(() => inputNode()?.select())
+}
+
+watch(open, async (value) => {
+  if (value) {
+    await nextTick()
+    const node = inputNode()
+    node?.focus()
+    if (!query.value) node?.select()
+  } else {
+    query.value = ""
+  }
+})
 
 // Opened by the Alt+A shortcut.
 watch(
@@ -27,81 +79,168 @@ watch(
     open.value = true
   },
 )
-
-function label(name: string) {
-  const agent = modes.value.find((item) => item.name === name)
-  return agent?.displayName ?? name
-}
 </script>
 
 <template>
-  <SelectRoot v-model="selectedAgent" v-model:open="open">
-    <SelectTrigger class="trigger" aria-label="Mode (Alt+A)">
-      <Sparkles :size="14" class="trigger-icon" />
-      <SelectValue :placeholder="label(selectedAgent)" />
-      <kbd v-if="shortcutsVisible" class="kbd">A</kbd>
-      <SelectIcon class="trigger-chevron"><ChevronDown :size="14" /></SelectIcon>
-    </SelectTrigger>
-    <SelectPortal>
-      <SelectContent class="kilo-menu" position="popper" :side-offset="6">
-        <SelectViewport>
-          <SelectItem v-for="mode in modes" :key="mode.name" :value="mode.name" class="kilo-menu-item">
-            <div class="mode-item">
-              <SelectItemText class="mode-name">{{ mode.displayName ?? mode.name }}</SelectItemText>
-              <span v-if="mode.description" class="mode-desc">{{ mode.description }}</span>
-            </div>
-            <SelectItemIndicator class="check"><Check :size="14" /></SelectItemIndicator>
-          </SelectItem>
-        </SelectViewport>
-      </SelectContent>
-    </SelectPortal>
-  </SelectRoot>
+  <ComboboxRoot
+    v-model="selectedKey"
+    v-model:open="open"
+    :ignore-filter="true"
+    :open-on-click="true"
+    :open-on-focus="true"
+    class="kilo-agent-root"
+  >
+    <ComboboxAnchor class="kilo-agent-anchor" title="Mode (Alt+A)">
+      <Sparkles :size="14" class="kilo-agent-icon" />
+      <ComboboxInput
+        ref="inputRef"
+        class="kilo-agent-input"
+        :display-value="displayValue"
+        placeholder="Select mode…"
+        spellcheck="false"
+        @input="onInput"
+        @focus="selectDisplayValue"
+        @click="selectDisplayValue"
+      />
+      <ComboboxTrigger class="kilo-agent-chevron" aria-label="Select mode (Alt+A)">
+        <ChevronDown :size="14" />
+      </ComboboxTrigger>
+      <kbd v-if="shortcutsVisible" class="kbd floating">A</kbd>
+    </ComboboxAnchor>
+
+    <ComboboxPortal>
+      <ComboboxContent class="kilo-menu kilo-agent-menu" position="popper" side="top" :side-offset="8" align="start">
+        <ComboboxViewport class="kilo-agent-scroll">
+          <ComboboxEmpty class="kilo-agent-empty">
+            {{ query ? `No modes match “${query}”.` : "No modes." }}
+          </ComboboxEmpty>
+          <ComboboxItem
+            v-for="agent in filtered"
+            :key="agent.name"
+            :value="agent.name"
+            :text-value="agent.displayName ?? agent.name"
+            class="kilo-agent-option"
+            :class="{ 'is-active': agent.name === selectedAgent }"
+          >
+            <span class="kilo-agent-name">{{ agent.displayName ?? agent.name }}</span>
+            <span v-if="agent.description" class="kilo-agent-desc">{{ agent.description }}</span>
+            <ComboboxItemIndicator class="kilo-agent-check"><Check :size="15" /></ComboboxItemIndicator>
+          </ComboboxItem>
+        </ComboboxViewport>
+      </ComboboxContent>
+    </ComboboxPortal>
+  </ComboboxRoot>
 </template>
 
-<style scoped>
-.trigger {
+<!-- Unscoped: Reka's teleported content does not receive scoped-style attributes. -->
+<style>
+.kilo-agent-anchor {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   height: 32px;
-  padding: 0 10px;
+  padding: 0 8px 0 10px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   color: var(--text);
-  font-size: 13px;
-  outline: none;
+  transition: border-color 0.12s, background 0.12s;
 }
-.trigger:hover {
+.kilo-agent-anchor:hover {
   background: var(--bg-hover);
 }
-.trigger:focus-visible {
+.kilo-agent-anchor:focus-within {
   border-color: var(--accent);
 }
-.trigger-icon {
+.kilo-agent-icon {
   color: var(--accent);
+  flex: none;
 }
-.trigger-chevron {
+.kilo-agent-input {
+  width: 90px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+.kilo-agent-input::placeholder {
   color: var(--text-muted);
 }
-.mode-item {
+.kilo-agent-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  padding: 2px;
+  flex: none;
+}
+.kilo-agent-chevron:hover {
+  color: var(--text);
+}
+.kilo-agent-menu {
+  width: 560px;
+  max-width: calc(100vw - 32px);
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  max-width: 360px;
+  padding: 0;
+  overflow: hidden;
 }
-.mode-name {
-  text-transform: capitalize;
+.kilo-agent-scroll {
+  max-height: min(72vh, 600px);
+  overflow: auto;
+  padding: 6px;
+}
+.kilo-agent-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  column-gap: 8px;
+  padding: 11px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+.kilo-agent-option[data-highlighted] {
+  background: var(--bg-hover);
+}
+.kilo-agent-option.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.kilo-agent-name {
+  grid-column: 1;
+  font-size: 13.5px;
   font-weight: 500;
+  color: var(--text);
+  text-transform: capitalize;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.mode-desc {
-  font-size: 11.5px;
+.kilo-agent-desc {
+  grid-column: 1;
+  font-size: 11px;
+  line-height: 1.4;
   color: var(--text-muted);
   white-space: normal;
-  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
-.check {
-  margin-left: auto;
+.kilo-agent-check {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  justify-self: center;
   color: var(--accent);
+  display: inline-flex;
+}
+.kilo-agent-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 24px;
 }
 </style>

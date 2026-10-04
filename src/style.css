@@ -315,6 +315,8 @@ a {
   position: absolute;
   top: -6px;
   right: -6px;
+  z-index: 3;
+  pointer-events: none;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 .kilo-dialog {

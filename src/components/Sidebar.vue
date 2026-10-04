@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import {
   DropdownMenuContent,
   DropdownMenuItem,
@@ -24,7 +24,7 @@ import Spinner from "./Spinner.vue"
 import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
 import { theme, toggleTheme } from "@/theme"
-import { shortcutsVisible } from "@/stores/shortcuts"
+import { shortcutsVisible, openRequests } from "@/stores/shortcuts"
 
 const app = useApp()
 const { sorted, currentID, loading } = app.sessions
@@ -84,6 +84,80 @@ async function commitRename() {
 function cancelRename() {
   editingID.value = null
 }
+
+/* ------------------------------ session list nav ------------------------------ */
+
+const sessionsNav = ref<HTMLElement | null>(null)
+/** Index of the arrow-key cursor in the session list, or -1 when inactive. */
+const navIndex = ref(-1)
+
+function scrollNavIntoView() {
+  const items = sessionsNav.value?.querySelectorAll<HTMLElement>(".session")
+  items?.[navIndex.value]?.scrollIntoView({ block: "nearest" })
+}
+
+// Alt+S jumps into the session list, cursoring on the current session.
+watch(
+  () => openRequests.sessions,
+  () => {
+    const list = sorted.value
+    if (!list.length) return
+    const current = list.findIndex((session) => session.id === currentID.value)
+    navIndex.value = current >= 0 ? current : 0
+    void nextTick(() => {
+      sessionsNav.value?.focus()
+      scrollNavIntoView()
+    })
+  },
+)
+
+function endNav() {
+  navIndex.value = -1
+}
+
+function moveNav(delta: number) {
+  const list = sorted.value
+  navIndex.value = Math.min(list.length - 1, Math.max(0, navIndex.value + delta))
+  void nextTick(scrollNavIntoView)
+}
+
+function onSessionsKeydown(event: KeyboardEvent) {
+  if (navIndex.value < 0) return
+  const list = sorted.value
+  switch (event.key) {
+    case "ArrowDown":
+      event.preventDefault()
+      moveNav(1)
+      break
+    case "ArrowUp":
+      event.preventDefault()
+      moveNav(-1)
+      break
+    case "Home":
+      event.preventDefault()
+      navIndex.value = 0
+      void nextTick(scrollNavIntoView)
+      break
+    case "End":
+      event.preventDefault()
+      navIndex.value = list.length - 1
+      void nextTick(scrollNavIntoView)
+      break
+    case "Enter": {
+      event.preventDefault()
+      const session = list[navIndex.value]
+      if (session) void selectSession(session.id)
+      endNav()
+      break
+    }
+    case "Escape":
+      event.preventDefault()
+      endNav()
+      break
+    default:
+      break
+  }
+}
 </script>
 
 <template>
@@ -99,16 +173,17 @@ function cancelRename() {
     <button class="new-chat" title="New chat (Alt+N)" @click="newChat()">
       <MessageSquarePlus :size="16" />
       New chat
-      <kbd v-if="shortcutsVisible" class="kbd">N</kbd>
+      <kbd v-if="shortcutsVisible" class="kbd floating">N</kbd>
     </button>
 
-    <nav class="sessions">
+    <div class="sessions-wrap">
+      <nav ref="sessionsNav" class="sessions" tabindex="-1" @keydown="onSessionsKeydown" @blur="endNav">
       <div v-if="loading && !sorted.length" class="muted"><Spinner :size="14" /></div>
       <button
-        v-for="session in sorted"
+        v-for="(session, index) in sorted"
         :key="session.id"
         class="session"
-        :class="{ active: session.id === currentID }"
+        :class="{ active: session.id === currentID, 'kb-active': index === navIndex }"
         @click="selectSession(session.id)"
         @dblclick="startRename(session.id, session.title)"
       >
@@ -144,7 +219,9 @@ function cancelRename() {
         </DropdownMenuRoot>
       </button>
       <p v-if="!loading && !sorted.length" class="muted empty">No conversations yet</p>
-    </nav>
+      </nav>
+      <kbd v-if="shortcutsVisible" class="kbd floating">S</kbd>
+    </div>
 
     <footer class="foot">
       <div class="conn" :class="connectionState" :title="connectError ?? connected?.origin">
@@ -207,6 +284,7 @@ function cancelRename() {
   font-size: 14px;
 }
 .new-chat {
+  position: relative;
   margin: 4px 10px 8px;
   display: flex;
   align-items: center;
@@ -220,8 +298,11 @@ function cancelRename() {
 .new-chat:hover {
   background: var(--bg-hover);
 }
-.new-chat .kbd {
-  margin-left: auto;
+.sessions-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
 }
 .sessions {
   flex: 1;
@@ -230,6 +311,10 @@ function cancelRename() {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  outline: none;
+}
+.session.kb-active {
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .session {
   position: relative;
