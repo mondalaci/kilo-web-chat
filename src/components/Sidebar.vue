@@ -234,9 +234,9 @@ function cancelRename() {
 .session {
   position: relative;
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
   padding: 8px 10px;
   border: none;
   background: transparent;
@@ -251,15 +251,20 @@ function cancelRename() {
   background: var(--bg-active);
 }
 .session-title {
+  flex: 1;
+  min-width: 0;
   font-size: 13.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 100%;
 }
 .session-time {
+  flex: none;
   font-size: 11px;
   color: var(--text-faint);
+}
+.session:hover .session-time {
+  visibility: hidden;
 }
 .session-menu {
   position: absolute;

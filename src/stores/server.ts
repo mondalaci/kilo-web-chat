@@ -1,7 +1,7 @@
 import { computed, ref } from "vue"
 import type { ServerClient } from "@/api/client"
 import { normalizeOrigin } from "@/api/discovery"
-import type { Agent, Command, Model, ModelRef, PathInfo, Provider, ServerConfig } from "@/api/types"
+import type { Agent, Command, Model, ModelRef, PathInfo, Project, Provider, ServerConfig } from "@/api/types"
 
 const PREFS_KEY = "kilo-web-chat.prefs"
 
@@ -56,6 +56,8 @@ const agents = ref<Agent[]>([])
 const providers = ref<Provider[]>([])
 const connectedProviderIDs = ref<string[]>([])
 const commands = ref<Command[]>([])
+const projects = ref<Project[]>([])
+const selectedDirectory = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
@@ -112,30 +114,41 @@ export function useServer() {
       null
   }
 
-  async function load(client: ServerClient, instanceOrigin: string) {
+  async function load(client: ServerClient, instanceOrigin: string, directory?: string) {
+    const changedOrigin = origin.value !== instanceOrigin
     origin.value = instanceOrigin
     loading.value = true
     error.value = null
     try {
-      const [path, cfg, agentList, providerList, commandList] = await Promise.all([
-        client.path().catch(() => null),
-        client.config().catch(() => null),
-        client.agents().catch(() => [] as Agent[]),
-        client.providers().catch(() => null),
-        client.commands().catch(() => [] as Command[]),
-      ])
+      const path = await client.path(directory ? { directory } : {}).catch(() => null)
       pathInfo.value = path
+      const dir = directory ?? path?.worktree ?? path?.directory ?? undefined
+      selectedDirectory.value = dir ?? null
+
+      const [cfg, agentList, providerList, commandList, projectList] = await Promise.all([
+        client.config({ directory: dir }).catch(() => null),
+        client.agents({ directory: dir }).catch(() => [] as Agent[]),
+        client.providers({ directory: dir }).catch(() => null),
+        client.commands({ directory: dir }).catch(() => [] as Command[]),
+        client.projects().catch(() => [] as Project[]),
+      ])
       config.value = cfg
       agents.value = agentList
       providers.value = providerList?.all ?? []
       connectedProviderIDs.value = providerList?.connected ?? []
       commands.value = commandList
-      applyDefaults()
+      projects.value = projectList
+      // Don't clobber the current agent/model when only switching project.
+      if (changedOrigin || !selectedModel.value) applyDefaults()
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err)
     } finally {
       loading.value = false
     }
+  }
+
+  function setDirectory(dir: string) {
+    selectedDirectory.value = dir
   }
 
   function reset() {
@@ -146,6 +159,8 @@ export function useServer() {
     providers.value = []
     connectedProviderIDs.value = []
     commands.value = []
+    projects.value = []
+    selectedDirectory.value = null
     selectedModel.value = null
   }
 
@@ -163,8 +178,10 @@ export function useServer() {
     persistPrefs()
   }
 
-  /** The directory that scopes all instance requests (the server's project). */
-  const directory = computed(() => pathInfo.value?.worktree ?? pathInfo.value?.directory ?? undefined)
+  /** The directory that scopes all instance requests (the selected project). */
+  const directory = computed(
+    () => selectedDirectory.value ?? pathInfo.value?.worktree ?? pathInfo.value?.directory ?? undefined,
+  )
 
   return {
     pathInfo,
@@ -172,6 +189,8 @@ export function useServer() {
     agents,
     providers,
     commands,
+    projects,
+    selectedDirectory,
     loading,
     error,
     modes,
@@ -182,6 +201,7 @@ export function useServer() {
     selectedModelInfo,
     directory,
     load,
+    setDirectory,
     reset,
     setAgent,
     setModel,

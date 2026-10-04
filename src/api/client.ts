@@ -5,6 +5,7 @@ import type {
   MessageWithParts,
   ModelRef,
   PathInfo,
+  Project,
   ProviderList,
   ServerConfig,
   SessionInfo,
@@ -104,6 +105,10 @@ export class ServerClient {
 
   path(opts: RequestOptions = {}) {
     return this.request<PathInfo>("/path", opts)
+  }
+
+  projects(opts: RequestOptions = {}) {
+    return this.request<Project[]>("/project", opts)
   }
 
   config(opts: RequestOptions = {}) {

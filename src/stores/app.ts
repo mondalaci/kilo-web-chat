@@ -55,6 +55,20 @@ export function useApp() {
     await chat.open(client, sessionID, server.directory.value)
   }
 
+  /** Switch the active project (directory) and reload everything scoped to it. */
+  async function switchProject(directory: string) {
+    const client = connection.client.value
+    if (!client) return
+    if (server.directory.value === directory) return
+    live.stop()
+    chat.reset()
+    sessions.reset()
+    server.setDirectory(directory)
+    await server.load(client, connection.connected.value?.origin ?? "", directory)
+    await sessions.load(client, server.directory.value)
+    await live.start(client, server.directory.value)
+  }
+
   async function newChat() {
     const client = connection.client.value
     if (!client) return null
@@ -143,6 +157,7 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
     connect,
     disconnect,
     selectSession,
+    switchProject,
     newChat,
     sendMessage,
     abort,

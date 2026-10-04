@@ -332,6 +332,16 @@ export interface PathInfo {
   directory: string
 }
 
+export interface Project {
+  id: string
+  worktree: string
+  name?: string
+  vcs?: { type?: string; branch?: string } | unknown
+  icon?: unknown
+  time?: unknown
+  sandboxes?: string[]
+}
+
 /* -------------------------------------------------------------------------- */
 /* Events                                                                     */
 /* -------------------------------------------------------------------------- */

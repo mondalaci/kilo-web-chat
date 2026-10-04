@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from "vue"
-import { ArrowUp, Folder, Square, TriangleAlert, X } from "lucide-vue-next"
+import { ArrowUp, Square, TriangleAlert, X } from "lucide-vue-next"
 import AgentSelector from "./AgentSelector.vue"
 import ModelSelector from "./ModelSelector.vue"
+import ProjectSelector from "./ProjectSelector.vue"
 import { useApp } from "@/stores/app"
 import { addImageFile, attachments, clearAttachments, composerFocusRequest, draft, removeAttachment } from "@/stores/draft"
 import { useServer } from "@/stores/server"
+import { shortcutsVisible } from "@/stores/shortcuts"
 
 const app = useApp()
 const { sending, isBusy } = app.chat
 const { abort, sendMessage } = app
-const { directory, selectedModelInfo } = useServer()
+const { selectedModelInfo } = useServer()
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const dragging = ref(false)
@@ -27,7 +29,11 @@ function resize() {
 
 watch(draft, () => nextTick(resize))
 watch(composerFocusRequest, () => nextTick(() => textarea.value?.focus()))
-onMounted(resize)
+onMounted(() => {
+  resize()
+  // Focus the input by default when the chat UI opens.
+  nextTick(() => textarea.value?.focus())
+})
 
 function handleFiles(files: ArrayLike<File> | null | undefined) {
   if (!files) return
@@ -90,8 +96,6 @@ function onKeydown(event: KeyboardEvent) {
     void submit()
   }
 }
-
-const projectName = () => directory.value?.split("/").filter(Boolean).pop()
 </script>
 
 <template>
@@ -112,15 +116,18 @@ const projectName = () => directory.value?.split("/").filter(Boolean).pop()
         </div>
       </div>
 
-      <textarea
-        ref="textarea"
-        v-model="draft"
-        class="input"
-        rows="1"
-        spellcheck="false"
-        @keydown="onKeydown"
-        @paste="onPaste"
-      />
+      <div class="input-wrap">
+        <textarea
+          ref="textarea"
+          v-model="draft"
+          class="input"
+          rows="1"
+          spellcheck="false"
+          @keydown="onKeydown"
+          @paste="onPaste"
+        />
+        <kbd v-if="shortcutsVisible" class="kbd floating">C</kbd>
+      </div>
 
       <div class="bar">
         <div class="bar-left">
@@ -131,10 +138,7 @@ const projectName = () => directory.value?.split("/").filter(Boolean).pop()
           </span>
         </div>
         <div class="bar-right">
-          <span v-if="directory" class="project" :title="directory">
-            <Folder :size="13" />
-            {{ projectName() }}
-          </span>
+          <ProjectSelector />
           <button v-if="isBusy" class="send stop" title="Stop" @click="stop">
             <Square :size="14" fill="currentColor" />
           </button>
@@ -142,7 +146,7 @@ const projectName = () => directory.value?.split("/").filter(Boolean).pop()
             v-else
             class="send"
             :disabled="(!draft.trim() && !attachments.length) || sending"
-            title="Send"
+            title="Send (Enter)"
             @click="submit"
           >
             <ArrowUp :size="16" />
@@ -213,6 +217,9 @@ const projectName = () => directory.value?.split("/").filter(Boolean).pop()
 .attachment .remove:hover {
   background: rgba(0, 0, 0, 0.85);
 }
+.input-wrap {
+  position: relative;
+}
 .input {
   width: 100%;
   max-height: 320px;
@@ -249,17 +256,6 @@ const projectName = () => directory.value?.split("/").filter(Boolean).pop()
   align-items: center;
   gap: 10px;
   flex: none;
-}
-.project {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12.5px;
-  color: var(--text-muted);
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .send {
   width: 34px;
