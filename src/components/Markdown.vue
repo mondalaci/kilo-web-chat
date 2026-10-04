@@ -25,6 +25,48 @@ function highlight() {
   })
 }
 
+/** Wrap each code block with a hover copy icon button. */
+const COPY_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>'
+const CHECK_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+
+function decorateCode() {
+  if (!root.value) return
+  root.value.querySelectorAll<HTMLPreElement>("pre").forEach((pre) => {
+    const code = pre.querySelector("code")
+    if (!code || pre.previousElementSibling?.classList.contains("code-block")) return
+    // Mermaid blocks are rendered to diagrams separately.
+    if (code.classList.contains("language-mermaid") || code.classList.contains("lang-mermaid")) return
+
+    const wrapper = document.createElement("div")
+    wrapper.className = "code-block"
+    pre.parentNode?.insertBefore(wrapper, pre)
+    wrapper.appendChild(pre)
+
+    const button = document.createElement("button")
+    button.type = "button"
+    button.className = "code-copy"
+    button.title = "Copy code"
+    button.setAttribute("aria-label", "Copy code")
+    button.innerHTML = COPY_ICON
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(code.textContent ?? "")
+        button.innerHTML = CHECK_ICON
+        button.classList.add("copied")
+        setTimeout(() => {
+          button.innerHTML = COPY_ICON
+          button.classList.remove("copied")
+        }, 1500)
+      } catch {
+        /* clipboard unavailable */
+      }
+    })
+    wrapper.appendChild(button)
+  })
+}
+
 /* ---------------------------------- Mermaid --------------------------------- */
 
 let mermaidPromise: Promise<typeof import("mermaid").default> | null = null
@@ -73,6 +115,7 @@ async function renderMermaid() {
 
 function renderAll() {
   highlight()
+  decorateCode()
   void renderMermaid()
 }
 

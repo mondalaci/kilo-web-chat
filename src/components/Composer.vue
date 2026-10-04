@@ -159,10 +159,17 @@ function onKeydown(event: KeyboardEvent) {
 
 <style scoped>
 .composer-wrap {
-  padding: 6px 20px 12px;
+  /* Left inset matches the message avatar so the card lines up with the
+     conversation content (assistant bubble). */
+  padding: 6px 0 12px 40px;
   max-width: var(--content-width);
   margin: 0 auto;
   width: 100%;
+}
+@media (max-width: 900px) {
+  .composer-wrap {
+    padding: 6px 16px 12px;
+  }
 }
 .composer {
   border: 1px solid var(--border);

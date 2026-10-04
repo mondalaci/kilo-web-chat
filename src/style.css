@@ -173,7 +173,7 @@ a {
 }
 .markdown pre code {
   display: block;
-  padding: 0.85em 1em;
+  padding: 1.1em 1.25em;
   background: transparent;
   color: #d6deeb;
   font-family: var(--font-mono);
@@ -190,7 +190,43 @@ a {
 }
 .markdown pre code {
   background: transparent;
+}
+
+/* Code block with a hover copy button. */
+.markdown .code-block {
+  position: relative;
+  margin: 0 0 0.9em;
+}
+.markdown .code-block pre {
+  margin: 0;
+}
+.markdown .code-copy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
   padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--code-border);
+  background: rgba(255, 255, 255, 0.08);
+  color: #d6deeb;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+.markdown .code-block:hover .code-copy {
+  opacity: 1;
+}
+.markdown .code-copy:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.markdown .code-copy.copied {
+  color: #4ade80;
+  border-color: color-mix(in srgb, #4ade80 50%, transparent);
 }
 .markdown table {
   border-collapse: collapse;
