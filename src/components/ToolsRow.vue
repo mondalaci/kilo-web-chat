@@ -11,7 +11,17 @@ const TOOLS_DOCS_URL = "https://kilo.ai/docs/automate/tools"
 const { toolIds, selectedAgentInfo, selectedAgent } = useServer()
 const { overrides, setOverride, reset } = useTools()
 
-const expanded = ref(false)
+const TOOLS_EXPANDED_KEY = "kilo-web-chat.tools-expanded"
+
+const expanded = ref(localStorage.getItem(TOOLS_EXPANDED_KEY) === "true")
+
+watch(expanded, (value) => {
+  try {
+    localStorage.setItem(TOOLS_EXPANDED_KEY, String(value))
+  } catch {
+    /* storage unavailable */
+  }
+})
 
 // Overrides are per-agent; clear them when the mode changes.
 watch(selectedAgent, () => reset())

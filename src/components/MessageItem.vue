@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue"
+import { computed } from "vue"
 import { File as FileIcon, User } from "lucide-vue-next"
 import type { FilePart, MessageWithParts, Part, TextPart } from "@/api/types"
 import { formatCost, formatTokens } from "@/utils/format"
@@ -10,42 +10,6 @@ import PartTool from "./PartTool.vue"
 const props = defineProps<{ message: MessageWithParts; streaming?: boolean }>()
 
 const isUser = computed(() => props.message.info.role === "user")
-
-/** Keeps the hover meta on screen for tall messages, tracking scroll. */
-const root = ref<HTMLElement | null>(null)
-const metaTop = ref<number | null>(null)
-
-let raf = 0
-
-function updateMetaTop() {
-  const el = root.value
-  if (!el) return
-  const rect = el.getBoundingClientRect()
-  const height = el.querySelector<HTMLElement>(".meta")?.offsetHeight ?? 60
-  // Clamp within the scroll viewport (below the sticky header, above the composer).
-  const box = el.closest(".thread")?.getBoundingClientRect()
-  const top = (box?.top ?? 0) + 12
-  const bottom = (box?.bottom ?? window.innerHeight) - height - 12
-  const desired = Math.max(top, Math.min(rect.top + 12, bottom))
-  metaTop.value = desired - rect.top
-}
-
-function loop() {
-  updateMetaTop()
-  raf = requestAnimationFrame(loop)
-}
-
-function onEnter() {
-  cancelAnimationFrame(raf)
-  loop()
-}
-
-function onLeave() {
-  cancelAnimationFrame(raf)
-  raf = 0
-}
-
-onBeforeUnmount(() => cancelAnimationFrame(raf))
 
 const contentParts = computed<Part[]>(() =>
   props.message.parts.filter((part) => {
@@ -82,7 +46,7 @@ function isImage(part: FilePart) {
 </script>
 
 <template>
-  <div ref="root" class="message" :class="isUser ? 'user' : 'assistant'" @mouseenter="onEnter" @mouseleave="onLeave">
+  <div class="message" :class="isUser ? 'user' : 'assistant'">
     <div v-if="!isUser" class="avatar" aria-hidden="true">K</div>
     <div class="bubble" :class="isUser ? 'user-bubble' : 'assistant-bubble'">
       <template v-for="part in contentParts" :key="part.id">
@@ -106,10 +70,12 @@ function isImage(part: FilePart) {
       <div v-if="errorMessage" class="error">{{ errorMessage }}</div>
     </div>
     <div v-if="isUser" class="avatar user-avatar" aria-hidden="true"><User :size="15" /></div>
-    <div v-if="meta && !streaming" class="meta" :title="meta.model" :style="metaTop !== null ? { top: `${metaTop}px` } : undefined">
-      <div class="meta-model">{{ meta.model }}</div>
-      <div v-if="meta.tokens" class="meta-row">{{ formatTokens(meta.tokens) }} tokens</div>
-      <div v-if="meta.cost" class="meta-row">{{ formatCost(meta.cost) }}</div>
+    <div v-if="meta && !streaming" class="meta" :title="meta.model">
+      <div class="meta-inner">
+        <div class="meta-model">{{ meta.model }}</div>
+        <div v-if="meta.tokens" class="meta-row">{{ formatTokens(meta.tokens) }} tokens</div>
+        <div v-if="meta.cost" class="meta-row">{{ formatCost(meta.cost) }}</div>
+      </div>
     </div>
   </div>
 </template>
@@ -208,20 +174,27 @@ function isImage(part: FilePart) {
   color: var(--danger);
   font-size: 13px;
 }
+/* Full-height gutter; the inner block sticks below the header while the
+   message is in view (native sticky, so it never jitters on scroll). */
 .meta {
   position: absolute;
-  top: 12px;
+  top: 0;
   left: calc(100% + 14px);
+  height: 100%;
   width: max-content;
   max-width: min(360px, calc(50vw - var(--content-width) / 2 - 40px));
+  pointer-events: none;
+}
+.meta-inner {
+  position: sticky;
+  top: -10px;
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-faint);
   opacity: 0;
   transition: opacity 0.12s ease;
-  pointer-events: none;
 }
-.message:hover .meta {
+.message:hover .meta-inner {
   opacity: 1;
 }
 .meta-model {
@@ -241,7 +214,12 @@ function isImage(part: FilePart) {
     top: 6px;
     left: auto;
     right: 4px;
+    height: auto;
     width: auto;
+    max-width: none;
+  }
+  .meta-inner {
+    position: static;
     padding: 4px 8px;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
