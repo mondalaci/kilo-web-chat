@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import {
   ComboboxAnchor,
   ComboboxContent,
@@ -28,6 +28,7 @@ const { providerGroups, providers, selectedModel, setModel } = useServer()
 const open = ref(false)
 const query = ref("")
 const showAll = ref(false)
+const inputRef = ref<unknown>(null)
 
 const SEP = "::"
 function modelKey(providerID: string, modelID: string) {
@@ -62,8 +63,31 @@ function displayValue(key: string) {
 function onInput(event: Event) {
   query.value = (event.target as HTMLInputElement).value
 }
-watch(open, (value) => {
-  if (!value) query.value = ""
+
+function inputNode(): HTMLInputElement | null {
+  const value = inputRef.value as { $el?: unknown } | HTMLInputElement | null
+  return ((value && "$el" in value ? value.$el : value) ?? null) as HTMLInputElement | null
+}
+
+/**
+ * When the input still shows the selected model name (no search term typed
+ * yet), selecting it makes the first keystroke replace the name instead of
+ * being inserted at the caret. Once the user is searching, editing stays normal.
+ */
+function selectDisplayValue() {
+  if (query.value) return
+  requestAnimationFrame(() => inputNode()?.select())
+}
+
+watch(open, async (value) => {
+  if (value) {
+    await nextTick()
+    const node = inputNode()
+    node?.focus()
+    if (!query.value) node?.select()
+  } else {
+    query.value = ""
+  }
 })
 
 const filteredGroups = computed(() => {
@@ -108,6 +132,43 @@ const resultCount = computed(() => visibleGroups.value.reduce((total, group) => 
 function isSelected(model: Model) {
   return selectedModel.value?.providerID === model.providerID && selectedModel.value?.modelID === model.id
 }
+
+/** Compact USD-per-1M-token price: `$3/$15`. */
+function price(value: number) {
+  if (!value) return "0"
+  if (value >= 1) return value.toFixed(2).replace(/\.00$/, "")
+  return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")
+}
+function costLabel(model: Model) {
+  if (model.isFree) return "free"
+  const cost = model.cost
+  if (!cost || (!cost.input && !cost.output)) return ""
+  return `$${price(cost.input)}/$${price(cost.output)}`
+}
+function costTitle(model: Model) {
+  if (model.isFree) return "Free"
+  const cost = model.cost
+  if (!cost) return ""
+  return `Input $${cost.input} / 1M tokens · Output $${cost.output} / 1M tokens`
+}
+
+/**
+ * Colour the price by value on a log scale so cheaper models trend green and
+ * expensive ones trend red. Uses the higher of input/output cost.
+ */
+function costColor(model: Model): string | undefined {
+  const free = "hsl(142 60% 45%)"
+  if (model.isFree) return free
+  const cost = model.cost
+  if (!cost) return undefined
+  const value = Math.max(cost.input || 0, cost.output || 0)
+  if (value <= 0) return free
+  const min = Math.log10(0.05)
+  const max = Math.log10(60)
+  const t = Math.min(1, Math.max(0, (Math.log10(value) - min) / (max - min)))
+  const hue = 142 - 142 * t
+  return `hsl(${Math.round(hue)} 70% 48%)`
+}
 </script>
 
 <template>
@@ -122,11 +183,14 @@ function isSelected(model: Model) {
     <ComboboxAnchor class="kilo-model-anchor">
       <Sparkle :size="14" class="kilo-model-anchor-icon" />
       <ComboboxInput
+        ref="inputRef"
         class="kilo-model-input"
         :display-value="displayValue"
         placeholder="Search models…"
         spellcheck="false"
         @input="onInput"
+        @focus="selectDisplayValue"
+        @click="selectDisplayValue"
       />
       <ComboboxTrigger class="kilo-model-chevron" aria-label="Toggle models">
         <ChevronDown :size="14" />
@@ -160,8 +224,16 @@ function isSelected(model: Model) {
                   :class="{ 'is-active': isSelected(model) }"
                 >
                   <span class="kilo-model-name">{{ model.name }}</span>
-                  <span v-if="model.isFree" class="kilo-model-tag">free</span>
-                  <span v-if="model.capabilities?.reasoning" class="kilo-model-tag is-reasoning">reasoning</span>
+                  <span
+                    v-if="costLabel(model)"
+                    class="kilo-model-cost"
+                    :style="{ color: costColor(model) }"
+                    :title="costTitle(model)"
+                    >{{ costLabel(model) }}</span
+                  >
+                  <span class="kilo-model-badges">
+                    <span v-if="model.capabilities?.reasoning" class="kilo-model-tag is-reasoning">reasoning</span>
+                  </span>
                   <ComboboxItemIndicator class="kilo-model-check"><Check :size="15" /></ComboboxItemIndicator>
                 </ComboboxItem>
               </ComboboxGroup>
@@ -234,7 +306,7 @@ function isSelected(model: Model) {
   color: var(--text);
 }
 .kilo-model-menu {
-  width: 340px;
+  width: 460px;
   display: flex;
   flex-direction: column;
   padding: 0;
@@ -322,9 +394,10 @@ function isSelected(model: Model) {
   background: #4ade80;
 }
 .kilo-model-option {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78px 88px 18px;
   align-items: center;
-  gap: 8px;
+  column-gap: 8px;
   margin: 0 6px;
   padding: 8px 10px;
   border-radius: var(--radius-sm);
@@ -341,12 +414,29 @@ function isSelected(model: Model) {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .kilo-model-name {
-  flex: 1;
+  grid-column: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.kilo-model-cost {
+  grid-column: 2;
+  justify-self: end;
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.kilo-model-badges {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
 .kilo-model-check {
+  grid-column: 4;
+  justify-self: center;
   color: var(--accent);
   display: inline-flex;
 }

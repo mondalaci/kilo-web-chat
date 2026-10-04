@@ -71,7 +71,7 @@ const providerGroups = computed<ModelGroup[]>(() => {
       providerID: provider.id,
       providerName: provider.name || provider.id,
       connected: connected.has(provider.id),
-      models: Object.values(provider.models),
+      models: Object.values(provider.models).sort((a, b) => a.name.localeCompare(b.name)),
     }))
     .sort((a, b) => {
       if (a.connected !== b.connected) return a.connected ? -1 : 1

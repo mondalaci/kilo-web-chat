@@ -214,6 +214,16 @@ export interface ModelCapabilities {
   interleaved?: boolean | { field: string }
 }
 
+export interface ModelCost {
+  /** USD per 1M input tokens. */
+  input: number
+  /** USD per 1M output tokens. */
+  output: number
+  cache?: { read: number; write: number }
+  tiers?: Array<{ input: number; output: number; cache?: { read: number; write: number }; tier: { type: string; size: number } }>
+  experimentalOver200K?: { input: number; output: number; cache?: { read: number; write: number } }
+}
+
 export interface Model {
   id: string
   providerID: string
@@ -221,7 +231,7 @@ export interface Model {
   family?: string
   status?: "alpha" | "beta" | "deprecated" | "active"
   capabilities: ModelCapabilities
-  cost?: unknown
+  cost?: ModelCost
   limit?: { context: number; output: number; input?: number }
   options?: Record<string, unknown>
   variants?: Record<string, unknown>
