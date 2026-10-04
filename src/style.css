@@ -7,7 +7,7 @@
   --radius-lg: 16px;
   --content-width: 46rem;
   --sidebar-width: 264px;
-  --header-height: 56px;
+  --header-height: 40px;
 }
 
 html[data-theme="dark"] {

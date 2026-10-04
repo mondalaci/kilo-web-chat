@@ -18,6 +18,7 @@ import {
   Trash2,
 } from "lucide-vue-next"
 import Spinner from "./Spinner.vue"
+import ToolsRow from "./ToolsRow.vue"
 import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
 import { theme, toggleTheme } from "@/theme"
@@ -219,6 +220,8 @@ function onSessionsKeydown(event: KeyboardEvent) {
       </nav>
       <kbd v-if="shortcutsVisible" class="kbd floating">S</kbd>
     </div>
+
+    <ToolsRow />
 
     <footer class="foot">
       <div class="conn" :class="connectionState" :title="connectError ?? connected?.origin">

@@ -16,6 +16,7 @@ interface PromptInput {
   model?: ModelRef | null
   agent?: string
   variant?: string
+  tools?: Record<string, boolean>
 }
 
 const messages = ref<MessageWithParts[]>([])
@@ -159,6 +160,7 @@ export function useChat() {
             : undefined,
           agent: input.agent,
           variant: input.variant ?? input.model?.variant,
+          tools: input.tools,
         },
         { directory },
       )

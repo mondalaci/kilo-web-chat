@@ -14,6 +14,7 @@ import type {
   PermissionRequest,
   QuestionRequest,
   Todo,
+  ToolListItem,
 } from "./types"
 
 export interface Credentials {
@@ -132,6 +133,14 @@ export class ServerClient {
     return this.request<Command[]>("/command", opts)
   }
 
+  toolIds(opts: RequestOptions = {}) {
+    return this.request<string[]>("/experimental/tool/ids", opts)
+  }
+
+  tools(opts: RequestOptions = {}) {
+    return this.request<ToolListItem[]>("/experimental/tool", opts)
+  }
+
   /* -------------------------------- sessions -------------------------------- */
 
   listSessions(opts: RequestOptions = {}) {
@@ -177,6 +186,7 @@ export class ServerClient {
       model?: ModelRef
       agent?: string
       variant?: string
+      tools?: Record<string, boolean>
       messageID?: string
       system?: string
     },

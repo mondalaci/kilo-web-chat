@@ -201,7 +201,14 @@ export interface Agent {
   color?: string
   model?: { modelID: string; providerID: string }
   variant?: string
+  permission?: PermissionRule[]
   [k: string]: unknown
+}
+
+export interface PermissionRule {
+  permission: string
+  pattern: string
+  action: "allow" | "ask" | "deny"
 }
 
 export interface ModelCapabilities {
@@ -348,6 +355,12 @@ export interface ModelState {
   recent: ModelRef[]
   favorite: ModelRef[]
   variant: Record<string, string>
+}
+
+export interface ToolListItem {
+  id: string
+  description: string
+  parameters?: unknown
 }
 
 /* -------------------------------------------------------------------------- */

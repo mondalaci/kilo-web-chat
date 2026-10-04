@@ -154,16 +154,22 @@ function onBlur() {
   shortcutsVisible.value = false
 }
 
+function onPopState() {
+  void app.openSessionFromUrl()
+}
+
 onMounted(() => {
   applySidebarWidth()
   window.addEventListener("keydown", onKeyDown)
   window.addEventListener("keyup", onKeyUp)
   window.addEventListener("blur", onBlur)
+  window.addEventListener("popstate", onPopState)
 })
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKeyDown)
   window.removeEventListener("keyup", onKeyUp)
   window.removeEventListener("blur", onBlur)
+  window.removeEventListener("popstate", onPopState)
   shortcutsVisible.value = false
 })
 </script>
@@ -284,10 +290,20 @@ onBeforeUnmount(() => {
   opacity: 0.5;
 }
 .bottom {
+  position: relative;
   flex: none;
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-  background: var(--bg);
+}
+/* Fade the conversation out as it approaches the composer. */
+.bottom::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -10px;
+  height: 10px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+  z-index: 1;
 }
 .error-banner {
   max-width: var(--content-width);

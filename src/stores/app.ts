@@ -6,6 +6,8 @@ import { requestComposerFocus } from "./draft"
 import { useLive } from "./live"
 import { useServer } from "./server"
 import { useSessions } from "./sessions"
+import { useTools } from "./tools"
+import { readSessionParam, writeSessionParam } from "@/utils/url"
 
 export function useApp() {
   const connection = useConnection()
@@ -13,6 +15,7 @@ export function useApp() {
   const sessions = useSessions()
   const chat = useChat()
   const live = useLive()
+  const tools = useTools()
 
   async function connect(info: InstanceInfo, credentials?: Credentials) {
     live.stop()
@@ -31,6 +34,7 @@ export function useApp() {
     await server.load(client, origin, server.savedDirectory(origin))
     await sessions.load(client, server.directory.value)
     await live.start(client, server.directory.value)
+    await openSessionFromUrl()
     return true
     } catch (error) {
       live.stop()
@@ -55,7 +59,26 @@ export function useApp() {
     const client = connection.client.value
     if (!client) return
     sessions.currentID.value = sessionID
+    writeSessionParam(sessionID, readSessionParam() === sessionID)
     await chat.open(client, sessionID, server.directory.value)
+  }
+
+  /** Open a session by id, switching project first if it lives elsewhere. */
+  async function openSessionByID(sessionID: string) {
+    const client = connection.client.value
+    if (!client) return false
+    const info = await client.getSession(sessionID).catch(() => null)
+    if (!info) return false
+    const directory = info.directory
+    if (directory && directory !== server.directory.value) await switchProject(directory)
+    await selectSession(sessionID)
+    return true
+  }
+
+  /** Apply the session id from the current URL (used on load and back/forward). */
+  async function openSessionFromUrl() {
+    const id = readSessionParam()
+    if (id) await openSessionByID(id)
   }
 
   /** Switch the active project (directory) and reload everything scoped to it. */
@@ -106,6 +129,7 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
         parts,
         model: server.selectedModel.value,
         agent: server.selectedAgent.value,
+        tools: tools.payload(),
       },
       server.directory.value,
     )
@@ -161,6 +185,7 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
     disconnect,
     selectSession,
     switchProject,
+    openSessionFromUrl,
     newChat,
     sendMessage,
     abort,

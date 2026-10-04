@@ -161,7 +161,7 @@ function onKeydown(event: KeyboardEvent) {
 
 <style scoped>
 .composer-wrap {
-  padding: 8px 20px 14px;
+  padding: 6px 20px 12px;
   /* Wider than the message column so the mode, model and effort selectors fit
      on one row. */
   max-width: 58rem;

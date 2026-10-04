@@ -57,6 +57,7 @@ const providers = ref<Provider[]>([])
 const connectedProviderIDs = ref<string[]>([])
 const commands = ref<Command[]>([])
 const projects = ref<Project[]>([])
+const toolIds = ref<string[]>([])
 const modelState = ref<ModelState | null>(null)
 const selectedDirectory = ref<string | null>(null)
 const loading = ref(false)
@@ -176,13 +177,14 @@ export function useServer() {
       pathInfo.value = path
       selectedDirectory.value = dir ?? null
 
-      const [cfg, agentList, providerList, commandList, projectList, state] = await Promise.all([
+      const [cfg, agentList, providerList, commandList, projectList, state, ids] = await Promise.all([
         client.config({ directory: dir }).catch(() => null),
         client.agents({ directory: dir }).catch(() => [] as Agent[]),
         client.providers({ directory: dir }).catch(() => null),
         client.commands({ directory: dir }).catch(() => [] as Command[]),
         client.projects().catch(() => [] as Project[]),
         client.modelState({ directory: dir }).catch(() => null),
+        client.toolIds({ directory: dir }).catch(() => [] as string[]),
       ])
       config.value = cfg
       agents.value = agentList
@@ -191,6 +193,7 @@ export function useServer() {
       commands.value = commandList
       projects.value = projectList
       modelState.value = state
+      toolIds.value = ids
       // Don't clobber the current agent/model when only switching project.
       if (changedOrigin || !selectedModel.value) applyDefaults()
     } catch (err) {
@@ -232,6 +235,7 @@ export function useServer() {
     connectedProviderIDs.value = []
     commands.value = []
     projects.value = []
+    toolIds.value = []
     modelState.value = null
     selectedDirectory.value = null
     selectedModel.value = null
@@ -273,6 +277,7 @@ export function useServer() {
     providers,
     commands,
     projects,
+    toolIds,
     selectedDirectory,
     loading,
     error,
