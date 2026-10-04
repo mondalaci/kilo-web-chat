@@ -1,0 +1,377 @@
+<script setup lang="ts">
+import { computed, ref, watch } from "vue"
+import {
+  ComboboxAnchor,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxGroup,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxItemIndicator,
+  ComboboxLabel,
+  ComboboxPortal,
+  ComboboxRoot,
+  ComboboxTrigger,
+  ComboboxViewport,
+  ScrollAreaCorner,
+  ScrollAreaRoot,
+  ScrollAreaScrollbar,
+  ScrollAreaThumb,
+  ScrollAreaViewport,
+} from "reka-ui"
+import { Check, ChevronDown, Search, Sparkle } from "lucide-vue-next"
+import type { Model } from "@/api/types"
+import { useServer } from "@/stores/server"
+
+const { providerGroups, providers, selectedModel, setModel } = useServer()
+
+const open = ref(false)
+const query = ref("")
+const showAll = ref(false)
+
+const SEP = "::"
+function modelKey(providerID: string, modelID: string) {
+  return `${providerID}${SEP}${modelID}`
+}
+function parseKey(key: string) {
+  const index = key.indexOf(SEP)
+  if (index === -1) return null
+  return { providerID: key.slice(0, index), modelID: key.slice(index + SEP.length) }
+}
+
+const selectedKey = computed<string>({
+  get: () => (selectedModel.value ? modelKey(selectedModel.value.providerID, selectedModel.value.modelID) : ""),
+  set: (key) => {
+    const parsed = parseKey(key)
+    if (!parsed) return
+    setModel({ providerID: parsed.providerID, modelID: parsed.modelID })
+    open.value = false
+  },
+})
+
+function displayValue(key: string) {
+  const parsed = parseKey(key)
+  if (!parsed) return ""
+  const provider = providers.value.find((item) => item.id === parsed.providerID)
+  return provider?.models?.[parsed.modelID]?.name ?? parsed.modelID
+}
+
+// The combobox input is uncontrolled: its displayed text is either the selected
+// model name (via `displayValue`) or the user's typed search term. We only track
+// the typed term separately for our own filtering.
+function onInput(event: Event) {
+  query.value = (event.target as HTMLInputElement).value
+}
+watch(open, (value) => {
+  if (!value) query.value = ""
+})
+
+const filteredGroups = computed(() => {
+  const q = query.value.trim().toLowerCase()
+  return providerGroups.value
+    .filter((group) => (q ? true : showAll.value || group.connected))
+    .map((group) => ({
+      ...group,
+      models: group.models.filter((model) => {
+        if (!q) return true
+        return (
+          model.name.toLowerCase().includes(q) ||
+          model.id.toLowerCase().includes(q) ||
+          group.providerName.toLowerCase().includes(q)
+        )
+      }),
+    }))
+    .filter((group) => group.models.length > 0)
+})
+
+/** Bound the number of rendered options so huge provider lists stay fast. */
+const BROWSE_PER_GROUP = 60
+const SEARCH_LIMIT = 150
+const visibleGroups = computed(() => {
+  if (!query.value.trim()) {
+    return filteredGroups.value.map((group) => ({ ...group, models: group.models.slice(0, BROWSE_PER_GROUP) }))
+  }
+  let remaining = SEARCH_LIMIT
+  const out: typeof filteredGroups.value = []
+  for (const group of filteredGroups.value) {
+    if (remaining <= 0) break
+    const models = group.models.slice(0, remaining)
+    remaining -= models.length
+    out.push({ ...group, models })
+  }
+  return out
+})
+
+const totalMatches = computed(() => filteredGroups.value.reduce((total, group) => total + group.models.length, 0))
+const resultCount = computed(() => visibleGroups.value.reduce((total, group) => total + group.models.length, 0))
+
+function isSelected(model: Model) {
+  return selectedModel.value?.providerID === model.providerID && selectedModel.value?.modelID === model.id
+}
+</script>
+
+<template>
+  <ComboboxRoot
+    v-model="selectedKey"
+    v-model:open="open"
+    :ignore-filter="true"
+    :open-on-click="true"
+    :open-on-focus="true"
+    class="kilo-model-root"
+  >
+    <ComboboxAnchor class="kilo-model-anchor">
+      <Sparkle :size="14" class="kilo-model-anchor-icon" />
+      <ComboboxInput
+        class="kilo-model-input"
+        :display-value="displayValue"
+        placeholder="Search models…"
+        spellcheck="false"
+        @input="onInput"
+      />
+      <ComboboxTrigger class="kilo-model-chevron" aria-label="Toggle models">
+        <ChevronDown :size="14" />
+      </ComboboxTrigger>
+    </ComboboxAnchor>
+
+    <ComboboxPortal>
+      <ComboboxContent class="kilo-menu kilo-model-menu" position="popper" side="top" :side-offset="8" align="start">
+        <div class="kilo-model-head">
+          <Search :size="13" />
+          <span>Type to search all providers</span>
+          <label class="kilo-model-show-all">
+            <input v-model="showAll" type="checkbox" />
+            All
+          </label>
+        </div>
+        <ComboboxViewport class="kilo-model-viewport">
+          <ScrollAreaRoot class="kilo-model-scroll-root" type="auto">
+            <ScrollAreaViewport class="kilo-model-scroll">
+              <ComboboxGroup v-for="group in visibleGroups" :key="group.providerID" class="kilo-model-group">
+                <ComboboxLabel class="kilo-model-group-head">
+                  <span>{{ group.providerName }}</span>
+                  <span v-if="group.connected" class="kilo-model-dot" title="Connected"></span>
+                </ComboboxLabel>
+                <ComboboxItem
+                  v-for="model in group.models"
+                  :key="modelKey(group.providerID, model.id)"
+                  :value="modelKey(group.providerID, model.id)"
+                  :text-value="model.name"
+                  class="kilo-model-option"
+                  :class="{ 'is-active': isSelected(model) }"
+                >
+                  <span class="kilo-model-name">{{ model.name }}</span>
+                  <span v-if="model.isFree" class="kilo-model-tag">free</span>
+                  <span v-if="model.capabilities?.reasoning" class="kilo-model-tag is-reasoning">reasoning</span>
+                  <ComboboxItemIndicator class="kilo-model-check"><Check :size="15" /></ComboboxItemIndicator>
+                </ComboboxItem>
+              </ComboboxGroup>
+              <ComboboxEmpty class="kilo-model-empty">
+                {{ query ? `No models match “${query}”.` : "No models available." }}
+              </ComboboxEmpty>
+              <p v-if="!query && !showAll && resultCount" class="kilo-model-hint">Showing connected providers only</p>
+              <p v-else-if="totalMatches > resultCount" class="kilo-model-hint">
+                Showing {{ resultCount }} of {{ totalMatches }} matches · refine your search
+              </p>
+            </ScrollAreaViewport>
+            <ScrollAreaScrollbar class="kilo-model-scrollbar" orientation="vertical">
+              <ScrollAreaThumb class="kilo-model-thumb" />
+            </ScrollAreaScrollbar>
+            <ScrollAreaCorner class="kilo-model-scrollbar-corner" />
+          </ScrollAreaRoot>
+        </ComboboxViewport>
+      </ComboboxContent>
+    </ComboboxPortal>
+  </ComboboxRoot>
+</template>
+
+<!-- Unscoped: Reka's teleported content does not receive scoped-style attributes. -->
+<style>
+.kilo-model-anchor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  transition: border-color 0.12s, background 0.12s;
+}
+.kilo-model-anchor:hover {
+  background: var(--bg-hover);
+}
+.kilo-model-anchor:focus-within {
+  border-color: var(--accent);
+}
+.kilo-model-anchor-icon {
+  color: var(--accent);
+  flex: none;
+}
+.kilo-model-input {
+  width: 130px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+.kilo-model-input::placeholder {
+  color: var(--text-muted);
+}
+.kilo-model-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  padding: 2px;
+  flex: none;
+}
+.kilo-model-chevron:hover {
+  color: var(--text);
+}
+.kilo-model-menu {
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.kilo-model-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-faint);
+  font-size: 11.5px;
+  flex: none;
+}
+.kilo-model-head > span {
+  flex: 1;
+}
+.kilo-model-show-all {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.kilo-model-viewport {
+  overflow: visible !important;
+  flex: none !important;
+  min-height: 0;
+}
+.kilo-model-scroll-root {
+  position: relative;
+  max-height: min(62vh, 520px);
+}
+.kilo-model-scroll {
+  max-height: min(62vh, 520px);
+  overflow-x: hidden !important;
+  /* Keep keyboard-highlighted rows clear of the sticky group header. */
+  scroll-padding-top: 34px;
+  padding-right: 12px;
+}
+.kilo-model-scrollbar {
+  display: flex;
+  width: 10px;
+  padding: 2px;
+  user-select: none;
+  touch-action: none;
+  background: var(--bg-elevated);
+}
+.kilo-model-thumb {
+  flex: 1;
+  position: relative;
+  border-radius: 6px;
+  background: var(--text-muted);
+}
+.kilo-model-thumb:hover {
+  background: var(--text);
+}
+.kilo-model-scrollbar-corner {
+  background: var(--bg-elevated);
+}
+.kilo-model-group {
+  padding-bottom: 4px;
+}
+.kilo-model-group-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px 5px;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  z-index: 1;
+}
+.kilo-model-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+}
+.kilo-model-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 6px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+.kilo-model-option[data-highlighted] {
+  background: var(--bg-hover);
+}
+.kilo-model-option.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.kilo-model-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kilo-model-check {
+  color: var(--accent);
+  display: inline-flex;
+}
+.kilo-model-tag {
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  flex: none;
+}
+.kilo-model-tag.is-reasoning {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.kilo-model-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 24px;
+}
+.kilo-model-hint {
+  text-align: center;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  margin: 4px 0 2px;
+}
+</style>

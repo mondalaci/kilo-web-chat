@@ -1,0 +1,339 @@
+:root {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --content-width: 46rem;
+  --sidebar-width: 264px;
+  --header-height: 56px;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #212121;
+  --bg-elevated: #2a2a2a;
+  --bg-sidebar: #171717;
+  --bg-input: #303030;
+  --bg-hover: #2f2f2f;
+  --bg-active: #383838;
+  --bubble-user: #303030;
+  --bubble-assistant: transparent;
+  --text: #ececec;
+  --text-muted: #9b9b9b;
+  --text-faint: #6e6e6e;
+  --border: #3a3a3a;
+  --border-strong: #4a4a4a;
+  --accent: #d97757;
+  --accent-hover: #e08a6d;
+  --accent-text: #ffffff;
+  --code-bg: #0f0f0f;
+  --code-border: #333;
+  --danger: #ef6b6b;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --scroll-thumb: #4a4a4a;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-elevated: #f7f7f8;
+  --bg-sidebar: #f4f4f5;
+  --bg-input: #ffffff;
+  --bg-hover: #ececec;
+  --bg-active: #e3e3e4;
+  --bubble-user: #f1f1f2;
+  --bubble-assistant: transparent;
+  --text: #1c1c1e;
+  --text-muted: #6b6b70;
+  --text-faint: #9a9aa0;
+  --border: #e2e2e4;
+  --border-strong: #cfcfd4;
+  --accent: #c96442;
+  --accent-hover: #b85738;
+  --accent-text: #ffffff;
+  --code-bg: #0f172a;
+  --code-border: #1e293b;
+  --danger: #d64545;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  --scroll-thumb: #c4c4c8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border-radius: 8px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Markdown */
+.markdown {
+  overflow-wrap: anywhere;
+}
+.markdown > *:first-child {
+  margin-top: 0;
+}
+.markdown > *:last-child {
+  margin-bottom: 0;
+}
+.markdown p {
+  margin: 0 0 0.85em;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 1.3em 0 0.6em;
+  line-height: 1.3;
+  font-weight: 650;
+}
+.markdown h1 {
+  font-size: 1.5em;
+}
+.markdown h2 {
+  font-size: 1.25em;
+}
+.markdown h3 {
+  font-size: 1.1em;
+}
+.markdown ul,
+.markdown ol {
+  margin: 0 0 0.85em;
+  padding-left: 1.4em;
+}
+.markdown li {
+  margin: 0.25em 0;
+}
+.markdown blockquote {
+  margin: 0 0 0.85em;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-muted);
+}
+.markdown pre {
+  margin: 0 0 0.9em;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius);
+  overflow: auto;
+}
+.markdown pre code {
+  display: block;
+  padding: 0.85em 1em;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  line-height: 1.6;
+  white-space: pre;
+}
+.markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  padding: 0.12em 0.35em;
+  border-radius: 5px;
+}
+.markdown pre code {
+  background: transparent;
+  padding: 0;
+}
+.markdown table {
+  border-collapse: collapse;
+  margin: 0 0 0.9em;
+  display: block;
+  overflow-x: auto;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 0.4em 0.7em;
+  text-align: left;
+}
+.markdown th {
+  background: var(--bg-elevated);
+}
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1.2em 0;
+}
+.markdown img {
+  max-width: 100%;
+  border-radius: var(--radius);
+}
+
+/* highlight.js (github-dark-ish) */
+.hljs-comment,
+.hljs-quote {
+  color: #8b949e;
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-type {
+  color: #ff7b72;
+}
+.hljs-string,
+.hljs-attr,
+.hljs-template-tag {
+  color: #a5d6ff;
+}
+.hljs-number,
+.hljs-symbol {
+  color: #79c0ff;
+}
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.function_ {
+  color: #d2a8ff;
+}
+.hljs-variable,
+.hljs-name,
+.hljs-tag {
+  color: #7ee787;
+}
+.hljs-built_in {
+  color: #ffa657;
+}
+.hljs-meta {
+  color: #8b949e;
+}
+
+/* Shared overlay primitives (Reka UI is unstyled) */
+.kilo-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 40;
+  animation: kilo-fade 0.12s ease;
+}
+.kilo-menu {
+  min-width: 180px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 5px;
+  z-index: 60;
+  animation: kilo-pop 0.12s ease;
+}
+.kilo-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  cursor: pointer;
+  user-select: none;
+}
+.kilo-menu-item[data-highlighted] {
+  background: var(--bg-hover);
+}
+.kilo-menu-item.danger {
+  color: var(--danger);
+}
+.kilo-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px;
+}
+.kilo-dialog {
+  position: fixed;
+  z-index: 50;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(640px, calc(100vh - 64px));
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: kilo-pop 0.14s ease;
+}
+.kilo-dialog-title {
+  padding: 16px 18px 10px;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+@keyframes kilo-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes kilo-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.98);
+  }
+}
+.kilo-menu {
+  animation: kilo-menu-pop 0.1s ease;
+}
+@keyframes kilo-menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}

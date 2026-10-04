@@ -1,0 +1,28 @@
+{
+  "name": "kilo-web-chat",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "ChatGPT/Claude-like web chat interface for Kilo Code / opencode v1 servers",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.16",
+    "highlight.js": "^11.12.0",
+    "lucide-vue-next": "^1.0.0",
+    "marked": "^18.0.14",
+    "reka-ui": "^2.10.5",
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12",
+    "vue-tsc": "^3.1.1"
+  }
+}
