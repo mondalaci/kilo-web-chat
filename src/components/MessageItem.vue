@@ -3,6 +3,7 @@ import { computed } from "vue"
 import { File as FileIcon, User } from "lucide-vue-next"
 import type { FilePart, MessageWithParts, Part, TextPart } from "@/api/types"
 import { formatCost, formatTokens } from "@/utils/format"
+import { shortcutsVisible } from "@/stores/shortcuts"
 import Markdown from "./Markdown.vue"
 import PartReasoning from "./PartReasoning.vue"
 import PartTool from "./PartTool.vue"
@@ -70,7 +71,7 @@ function isImage(part: FilePart) {
       <div v-if="errorMessage" class="error">{{ errorMessage }}</div>
     </div>
     <div v-if="isUser" class="avatar user-avatar" aria-hidden="true"><User :size="15" /></div>
-    <div v-if="meta && !streaming" class="meta" :title="meta.model">
+    <div v-if="meta && !streaming && shortcutsVisible" class="meta" :title="meta.model">
       <div class="meta-inner">
         <div class="meta-model">{{ meta.model }}</div>
         <div v-if="meta.tokens" class="meta-row">{{ formatTokens(meta.tokens) }} tokens</div>
@@ -191,11 +192,6 @@ function isImage(part: FilePart) {
   font-size: 11px;
   line-height: 1.5;
   color: var(--text-faint);
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-.message:hover .meta-inner {
-  opacity: 1;
 }
 .meta-model {
   font-family: var(--font-mono);
