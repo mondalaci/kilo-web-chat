@@ -73,6 +73,37 @@ function upsertPart(part: Part) {
   else entry.parts = entry.parts.map((item, i) => (i === index ? { ...item, ...part } : item))
 }
 
+/**
+ * Append an incremental streamed chunk (`message.part.delta`) to a part's text
+ * or reasoning field, creating the part if it does not exist yet.
+ */
+function appendDelta(messageID: string, partID: string, sessionID: string, field: string, delta: string) {
+  const entry = findMessage(messageID)
+  if (!entry) {
+    const list = orphanParts.get(messageID) ?? []
+    const index = list.findIndex((item) => item.id === partID)
+    if (index === -1) {
+      list.push({ id: partID, sessionID, messageID, type: field === "reasoning" ? "reasoning" : "text", [field]: delta } as unknown as Part)
+    } else {
+      const current = list[index] as Record<string, unknown>
+      list[index] = { ...current, [field]: String(current[field] ?? "") + delta } as unknown as Part
+    }
+    orphanParts.set(messageID, list)
+    return
+  }
+  const index = entry.parts.findIndex((item) => item.id === partID)
+  if (index === -1) {
+    entry.parts = [
+      ...entry.parts,
+      { id: partID, sessionID, messageID, type: field === "reasoning" ? "reasoning" : "text", [field]: delta } as unknown as Part,
+    ]
+  } else {
+    const current = entry.parts[index] as unknown as Record<string, unknown>
+    const next = { ...current, [field]: String(current[field] ?? "") + delta } as unknown as Part
+    entry.parts = entry.parts.map((item, i) => (i === index ? next : item))
+  }
+}
+
 export function useChat() {
   const isBusy = computed(() => status.value.type === "busy" || status.value.type === "retry")
 
@@ -187,6 +218,17 @@ export function useChat() {
         if (!isCurrent) return
         const part = properties.part as Part | undefined
         if (part) upsertPart(part)
+        break
+      }
+      case "message.part.delta": {
+        if (!isCurrent) return
+        const messageID = properties.messageID as string
+        const partID = properties.partID as string
+        const field = (properties.field as string) || "text"
+        const delta = properties.delta as string | undefined
+        if (messageID && partID && delta != null) {
+          appendDelta(messageID, partID, properties.sessionID as string, field, delta)
+        }
         break
       }
       case "message.part.removed": {

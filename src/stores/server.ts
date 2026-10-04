@@ -6,7 +6,7 @@ import type { Agent, Command, Model, ModelRef, ModelState, PathInfo, Project, Pr
 const PREFS_KEY = "kilo-web-chat.prefs"
 
 interface Preferences {
-  [origin: string]: { agent?: string; model?: ModelRef }
+  [origin: string]: { agent?: string; model?: ModelRef; directory?: string }
 }
 
 function loadPrefs(): Preferences {
@@ -137,10 +137,23 @@ export function useServer() {
     origin.value = instanceOrigin
     loading.value = true
     error.value = null
+
+    // Apply saved agent/model synchronously so the UI never flashes the default
+    // ("code") before the persisted choice loads.
+    const saved = prefs.value[instanceOrigin] ?? {}
+    if (saved.agent) selectedAgent.value = saved.agent
+    if (saved.model) selectedModel.value = saved.model
+
     try {
-      const path = await client.path(directory ? { directory } : {}).catch(() => null)
+      // Prefer the requested directory (last used project), falling back to the
+      // server's default project if it is gone.
+      let path = directory ? await client.path({ directory }).catch(() => null) : null
+      let dir = directory && path ? directory : undefined
+      if (!dir || !path) {
+        path = await client.path().catch(() => null)
+        dir = path?.worktree ?? path?.directory ?? undefined
+      }
       pathInfo.value = path
-      const dir = directory ?? path?.worktree ?? path?.directory ?? undefined
       selectedDirectory.value = dir ?? null
 
       const [cfg, agentList, providerList, commandList, projectList, state] = await Promise.all([
@@ -167,8 +180,27 @@ export function useServer() {
     }
   }
 
+  function savedDirectory(instanceOrigin: string): string | undefined {
+    return prefs.value[instanceOrigin]?.directory
+  }
+
+  /**
+   * Synchronously apply saved agent/model for an origin. Call before connecting
+   * so the shell never flashes the "code" default while the server loads.
+   */
+  function applySavedPrefs(instanceOrigin: string) {
+    const saved = prefs.value[instanceOrigin] ?? {}
+    if (saved.agent) selectedAgent.value = saved.agent
+    if (saved.model) selectedModel.value = saved.model
+  }
+
   function setDirectory(dir: string) {
     selectedDirectory.value = dir
+    const key = origin.value
+    if (key) {
+      prefs.value = { ...prefs.value, [key]: { ...prefs.value[key], directory: dir } }
+      persistPrefs()
+    }
   }
 
   function reset() {
@@ -223,6 +255,8 @@ export function useServer() {
     directory,
     load,
     setDirectory,
+    savedDirectory,
+    applySavedPrefs,
     reset,
     setAgent,
     setModel,

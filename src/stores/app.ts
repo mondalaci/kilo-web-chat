@@ -20,15 +20,18 @@ export function useApp() {
     sessions.reset()
     server.reset()
 
+    server.applySavedPrefs(info.origin)
+
     const ok = await connection.connect(info, credentials)
     const client = connection.client.value
     if (!ok || !client) return false
 
     try {
-      await server.load(client, connection.connected.value?.origin ?? info.origin)
-      await sessions.load(client, server.directory.value)
-      await live.start(client, server.directory.value)
-      return true
+    const origin = connection.connected.value?.origin ?? info.origin
+    await server.load(client, origin, server.savedDirectory(origin))
+    await sessions.load(client, server.directory.value)
+    await live.start(client, server.directory.value)
+    return true
     } catch (error) {
       live.stop()
       chat.reset()
