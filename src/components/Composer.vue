@@ -1,18 +1,22 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from "vue"
-import { ArrowUp, Folder, Square } from "lucide-vue-next"
+import { ArrowUp, Folder, Square, TriangleAlert, X } from "lucide-vue-next"
 import AgentSelector from "./AgentSelector.vue"
 import ModelSelector from "./ModelSelector.vue"
 import { useApp } from "@/stores/app"
-import { draft } from "@/stores/draft"
+import { addImageFile, attachments, clearAttachments, draft, removeAttachment } from "@/stores/draft"
 import { useServer } from "@/stores/server"
 
 const app = useApp()
 const { sending, isBusy } = app.chat
 const { abort, sendMessage } = app
-const { directory } = useServer()
+const { directory, selectedModelInfo } = useServer()
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
+const dragging = ref(false)
+
+const attachmentsUnsupported = () =>
+  attachments.value.length > 0 && selectedModelInfo.value != null && !selectedModelInfo.value.capabilities?.attachment
 
 function resize() {
   const el = textarea.value
@@ -24,15 +28,54 @@ function resize() {
 watch(draft, () => nextTick(resize))
 onMounted(resize)
 
+function handleFiles(files: ArrayLike<File> | null | undefined) {
+  if (!files) return
+  for (const file of Array.from(files)) void addImageFile(file)
+}
+
+function onPaste(event: ClipboardEvent) {
+  const items = event.clipboardData?.items
+  if (!items) return
+  const images: File[] = []
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (item.kind === "file" && item.type.startsWith("image/")) {
+      const file = item.getAsFile()
+      if (file) images.push(file)
+    }
+  }
+  if (images.length === 0) return
+  event.preventDefault()
+  handleFiles(images)
+}
+
+function onDrop(event: DragEvent) {
+  dragging.value = false
+  handleFiles(event.dataTransfer?.files)
+}
+
 async function submit() {
   const text = draft.value
-  if (!text.trim() || sending.value) return
+  const hasFiles = attachments.value.length > 0
+  if ((!text.trim() && !hasFiles) || sending.value) return
+
+  const files = attachments.value.map((item) => ({
+    type: "file" as const,
+    mime: item.mime,
+    url: item.url,
+    filename: item.filename,
+  }))
+  const pending = [...attachments.value]
+
   draft.value = ""
+  clearAttachments()
   await nextTick(resize)
+
   try {
-    await sendMessage(text)
+    await sendMessage(text, files)
   } catch {
     draft.value = text
+    attachments.value = pending
   }
 }
 
@@ -52,20 +95,40 @@ const projectName = () => directory.value?.split("/").filter(Boolean).pop()
 
 <template>
   <div class="composer-wrap">
-    <div class="composer">
+    <div
+      class="composer"
+      :class="{ dragging }"
+      @dragover.prevent="dragging = true"
+      @dragleave.prevent="dragging = false"
+      @drop.prevent="onDrop"
+    >
+      <div v-if="attachments.length" class="attachments">
+        <div v-for="item in attachments" :key="item.id" class="attachment">
+          <img :src="item.url" :alt="item.filename" />
+          <button type="button" class="remove" :title="`Remove ${item.filename}`" @click="removeAttachment(item.id)">
+            <X :size="12" />
+          </button>
+        </div>
+      </div>
+
       <textarea
         ref="textarea"
         v-model="draft"
         class="input"
         rows="1"
-        placeholder="Message Kilo Code…"
+        placeholder="Message Kilo Code…  (paste or drop images)"
         spellcheck="false"
         @keydown="onKeydown"
+        @paste="onPaste"
       />
+
       <div class="bar">
         <div class="bar-left">
           <AgentSelector />
           <ModelSelector />
+          <span v-if="attachmentsUnsupported()" class="warn" title="The selected model may not accept images">
+            <TriangleAlert :size="12" /> model may not accept images
+          </span>
         </div>
         <div class="bar-right">
           <span v-if="directory" class="project" :title="directory">
@@ -75,7 +138,13 @@ const projectName = () => directory.value?.split("/").filter(Boolean).pop()
           <button v-if="isBusy" class="send stop" title="Stop" @click="stop">
             <Square :size="14" fill="currentColor" />
           </button>
-          <button v-else class="send" :disabled="!draft.trim() || sending" title="Send" @click="submit">
+          <button
+            v-else
+            class="send"
+            :disabled="(!draft.trim() && !attachments.length) || sending"
+            title="Send"
+            @click="submit"
+          >
             <ArrowUp :size="16" />
           </button>
         </div>
@@ -102,6 +171,48 @@ const projectName = () => directory.value?.split("/").filter(Boolean).pop()
 .composer:focus-within {
   border-color: var(--border-strong);
 }
+.composer.dragging {
+  border-color: var(--accent);
+  border-style: dashed;
+}
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 4px 8px;
+}
+.attachment {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.attachment img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.attachment .remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.62);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.attachment .remove:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
 .input {
   width: 100%;
   max-height: 320px;
@@ -125,6 +236,13 @@ const projectName = () => directory.value?.split("/").filter(Boolean).pop()
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+.warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--accent);
 }
 .bar-right {
   display: flex;

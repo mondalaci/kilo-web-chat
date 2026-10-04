@@ -66,22 +66,25 @@ export function useApp() {
     return session
   }
 
-  async function sendMessage(text: string) {
+  type FilePartInput = { type: "file"; mime: string; url: string; filename?: string }
+
+async function sendMessage(text: string, files: FilePartInput[] = []) {
     const client = connection.client.value
     if (!client) return
     const content = text.trim()
-    if (!content) return
+    if (!content && files.length === 0) return
     let sessionID = sessions.currentID.value
     if (!sessionID) {
       const session = await newChat()
       if (!session) return
       sessionID = session.id
     }
+    const parts = [...files, ...(content ? [{ type: "text" as const, text: content }] : [])]
     await chat.send(
       client,
       sessionID,
       {
-        parts: [{ type: "text", text: content }],
+        parts,
         model: server.selectedModel.value,
         agent: server.selectedAgent.value,
       },
