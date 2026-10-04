@@ -23,6 +23,23 @@ instance API (`/session`, `/message`, `/event`, `/config`, `/agent`, `/provider`
 - **Session management** — new chat, rename, delete, live status.
 - **Light / dark theme**, responsive sidebar.
 
+## Screenshots
+
+The chat, with streaming Markdown (including Mermaid diagrams), the hover
+model/token/cost gutter, and the composer with mode/model/effort selectors:
+
+![Chat UI](docs/screenshots/chat.png)
+
+Hold `Alt` to reveal the keyboard shortcuts on the controls they trigger
+(`P` project, `N` new chat, `S` sessions, `T` tools, `A` mode, `M` model,
+`E` effort, `C` focus chat):
+
+![Keyboard shortcuts](docs/screenshots/shortcuts.png)
+
+The model picker (connected providers first, sortable/searchable, priced):
+
+![Model selector](docs/screenshots/models.png)
+
 ## Getting started
 
 ```bash
