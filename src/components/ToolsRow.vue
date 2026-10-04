@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue"
 import { ChevronRight } from "lucide-vue-next"
 import { useServer } from "@/stores/server"
 import { useTools } from "@/stores/tools"
+import { openRequests, shortcutsVisible } from "@/stores/shortcuts"
 import { toolState, type ToolState } from "@/utils/tools"
 
 const TOOLS_DOCS_URL = "https://kilo.ai/docs/automate/tools"
@@ -14,6 +15,14 @@ const expanded = ref(false)
 
 // Overrides are per-agent; clear them when the mode changes.
 watch(selectedAgent, () => reset())
+
+// Alt+T toggles the tools list.
+watch(
+  () => openRequests.tools,
+  () => {
+    expanded.value = !expanded.value
+  },
+)
 
 const tools = computed(() => [...toolIds.value].sort((a, b) => a.localeCompare(b)))
 const enabledCount = computed(() => tools.value.filter((id) => displayState(id) !== "disabled").length)
@@ -36,6 +45,7 @@ function onToggle(id: string) {
       <ChevronRight :size="13" class="tools-chev" :class="{ open: expanded }" />
       <span class="tools-label">Tools</span>
       <span class="tools-count">{{ enabledCount }}/{{ tools.length }}</span>
+      <kbd v-if="shortcutsVisible" class="kbd floating">T</kbd>
     </button>
     <div v-show="expanded" class="tools-chips">
       <button
@@ -69,6 +79,7 @@ function onToggle(id: string) {
   padding: 8px 10px;
 }
 .tools-head {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;

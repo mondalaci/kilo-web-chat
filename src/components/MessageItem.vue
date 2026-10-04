@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue"
-import { File as FileIcon } from "lucide-vue-next"
+import { computed, onBeforeUnmount, ref } from "vue"
+import { File as FileIcon, User } from "lucide-vue-next"
 import type { FilePart, MessageWithParts, Part, TextPart } from "@/api/types"
 import { formatCost, formatTokens } from "@/utils/format"
 import Markdown from "./Markdown.vue"
@@ -10,6 +10,42 @@ import PartTool from "./PartTool.vue"
 const props = defineProps<{ message: MessageWithParts; streaming?: boolean }>()
 
 const isUser = computed(() => props.message.info.role === "user")
+
+/** Keeps the hover meta on screen for tall messages, tracking scroll. */
+const root = ref<HTMLElement | null>(null)
+const metaTop = ref<number | null>(null)
+
+let raf = 0
+
+function updateMetaTop() {
+  const el = root.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  const height = el.querySelector<HTMLElement>(".meta")?.offsetHeight ?? 60
+  // Clamp within the scroll viewport (below the sticky header, above the composer).
+  const box = el.closest(".thread")?.getBoundingClientRect()
+  const top = (box?.top ?? 0) + 12
+  const bottom = (box?.bottom ?? window.innerHeight) - height - 12
+  const desired = Math.max(top, Math.min(rect.top + 12, bottom))
+  metaTop.value = desired - rect.top
+}
+
+function loop() {
+  updateMetaTop()
+  raf = requestAnimationFrame(loop)
+}
+
+function onEnter() {
+  cancelAnimationFrame(raf)
+  loop()
+}
+
+function onLeave() {
+  cancelAnimationFrame(raf)
+  raf = 0
+}
+
+onBeforeUnmount(() => cancelAnimationFrame(raf))
 
 const contentParts = computed<Part[]>(() =>
   props.message.parts.filter((part) => {
@@ -46,7 +82,7 @@ function isImage(part: FilePart) {
 </script>
 
 <template>
-  <div class="message" :class="isUser ? 'user' : 'assistant'">
+  <div ref="root" class="message" :class="isUser ? 'user' : 'assistant'" @mouseenter="onEnter" @mouseleave="onLeave">
     <div v-if="!isUser" class="avatar" aria-hidden="true">K</div>
     <div class="bubble" :class="isUser ? 'user-bubble' : 'assistant-bubble'">
       <template v-for="part in contentParts" :key="part.id">
@@ -69,8 +105,8 @@ function isImage(part: FilePart) {
 
       <div v-if="errorMessage" class="error">{{ errorMessage }}</div>
     </div>
-    <div v-if="isUser" class="avatar user-avatar" aria-hidden="true">You</div>
-    <div v-if="meta && !streaming" class="meta" :title="meta.model">
+    <div v-if="isUser" class="avatar user-avatar" aria-hidden="true"><User :size="15" /></div>
+    <div v-if="meta && !streaming" class="meta" :title="meta.model" :style="metaTop !== null ? { top: `${metaTop}px` } : undefined">
       <div class="meta-model">{{ meta.model }}</div>
       <div v-if="meta.tokens" class="meta-row">{{ formatTokens(meta.tokens) }} tokens</div>
       <div v-if="meta.cost" class="meta-row">{{ formatCost(meta.cost) }}</div>
