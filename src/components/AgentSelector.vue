@@ -12,7 +12,7 @@ import {
   ComboboxTrigger,
   ComboboxViewport,
 } from "reka-ui"
-import { Check, ChevronDown, Sparkles } from "lucide-vue-next"
+import { Bot, Check, ChevronDown } from "lucide-vue-next"
 import { useServer } from "@/stores/server"
 import { openRequests, shortcutsVisible } from "@/stores/shortcuts"
 
@@ -91,7 +91,7 @@ watch(
     class="kilo-agent-root"
   >
     <ComboboxAnchor class="kilo-agent-anchor" title="Mode (Alt+A)">
-      <Sparkles :size="14" class="kilo-agent-icon" />
+      <Bot :size="14" class="kilo-agent-icon" />
       <ComboboxInput
         ref="inputRef"
         class="kilo-agent-input"

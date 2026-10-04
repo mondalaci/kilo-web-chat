@@ -19,7 +19,7 @@ import {
   ScrollAreaThumb,
   ScrollAreaViewport,
 } from "reka-ui"
-import { Check, ChevronDown, Search, Sparkle } from "lucide-vue-next"
+import { Brain, Check, ChevronDown, Search } from "lucide-vue-next"
 import type { Model } from "@/api/types"
 import { useServer } from "@/stores/server"
 import { openRequests, shortcutsVisible } from "@/stores/shortcuts"
@@ -190,7 +190,7 @@ function costColor(model: Model): string | undefined {
     class="kilo-model-root"
   >
     <ComboboxAnchor class="kilo-model-anchor">
-      <Sparkle :size="14" class="kilo-model-anchor-icon" />
+      <Brain :size="14" class="kilo-model-anchor-icon" />
       <ComboboxInput
         ref="inputRef"
         class="kilo-model-input"
