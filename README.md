@@ -49,11 +49,38 @@ bun run build
 bun run preview
 ```
 
+## Running with PM2
+
+`ecosystem.config.cjs` defines two PM2 apps: `kilo-server` (`kilo serve` on
+`127.0.0.1:4097`) and `kilo-chat` (the built UI on `127.0.0.1:4173`).
+
+Port `4097` is used for the PM2 server because the VS Code extension starts its
+own server on `4096` while it is running; the UI autodetects both. Change the
+`--port` in the app's `args` if 4097 is taken too.
+
+```bash
+bun run build                 # produce dist/ for the chat app
+pm2 start ecosystem.config.cjs
+pm2 save                      # persist the process list
+pm2 startup                   # optional: relaunch on boot
+```
+
+To apply config changes to an already-running app:
+
+```bash
+pm2 delete kilo-server && pm2 start ecosystem.config.cjs --only kilo-server
+pm2 save
+```
+
+Set `KILO_SERVER_PASSWORD` in the `kilo-server` app's `env` to require auth;
+leave it unset for a loopback-only, unauthenticated server.
+
 ## How detection works
 
 `src/api/discovery.ts` probes `http://127.0.0.1:<port>/global/health` and
 `/config` across a small set of ports (`4096` first, its neighbours, and a few
-common dev ports) on `127.0.0.1` and `localhost`. A response shape of
+common dev ports) on `localhost` (loopback aliases such as `127.0.0.1` are
+canonicalized to `localhost`). A response shape of
 `{ healthy: true, version }` identifies a server, and the config's `$schema`
 (`https://app.kilo.ai/config.json` vs `https://opencode.ai/config.json`) is used
 to label the product. Saved origins are re-probed on every scan so you can
