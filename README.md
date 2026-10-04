@@ -95,13 +95,18 @@ username defaults to `kilo`). Credentials entered in the UI are stored in
 
 ## CORS / mixed content
 
-The server reflects `localhost` origins for CORS, so the Vite dev server can talk
-to it directly. If you serve the built app from another origin, start the server
-with `--cors <origin>`:
+The server allows `http://localhost:*` and `http://127.0.0.1:*` origins
+automatically, so the Vite dev server can talk to it directly. Any other origin
+— including a reverse-proxied host such as `http://chat.localhost` — must be
+listed explicitly, or the browser blocks the API calls and discovery reports
+"No servers found":
 
 ```bash
-kilo serve --port 4096 --cors http://my-host:8080
+kilo serve --port 4097 --cors http://chat.localhost --cors http://my-host:8080
 ```
+
+The `kilo-server` PM2 app in `ecosystem.config.cjs` already passes
+`--cors http://chat.localhost`.
 
 Browsers block `http://127.0.0.1` requests from an `https://` page (mixed
 content), so serve this UI over `http://` locally.

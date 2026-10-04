@@ -22,8 +22,12 @@ module.exports = {
       // Port note: the VS Code extension starts its own server on 4096 while it
       // is running, so this always-on server uses 4097 to avoid an EADDRINUSE
       // crash-restart loop. The chat UI autodetects both.
+      //
+      // CORS: the server only allows origins matching http://localhost:* and
+      // http://127.0.0.1:* by default, so a reverse-proxied host needs an
+      // explicit origin. Add one `--cors <origin>` per host that serves the UI.
       script: path.join(HOME, "bin", "kilo"),
-      args: "serve --port 4097 --hostname 127.0.0.1",
+      args: "serve --port 4097 --hostname 127.0.0.1 --cors http://chat.localhost",
       interpreter: "bash",
       cwd: HOME,
       env: {
@@ -31,8 +35,6 @@ module.exports = {
         // unauthenticated server, or set it to require HTTP Basic auth
         // (username defaults to "kilo"):
         // KILO_SERVER_PASSWORD: "change-me",
-        // Extra CORS origins are usually unnecessary for localhost, but if you
-        // serve the UI from another host, add them via `--cors <origin>` above.
       },
       autorestart: true,
       max_restarts: 10,
