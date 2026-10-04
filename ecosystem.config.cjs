@@ -19,18 +19,24 @@ module.exports = {
       // `kilo` is the bash wrapper that execs the newest Kilo Code extension
       // binary, so it keeps working across extension upgrades.
       //
-      // Port note: the VS Code extension starts its own server on 4096 while it
-      // is running, so this always-on server uses 4097 to avoid an EADDRINUSE
-      // crash-restart loop. The chat UI autodetects both.
+      // Port note: the VS Code extension starts its own server with `--port 0`
+      // (a random free port), so a low/common port can occasionally be taken.
+      // Use an uncommon high port to avoid collisions; the chat UI autodetects
+      // it (see DEFAULT_PORTS in src/api/discovery.ts).
       //
       // CORS: the server only allows origins matching http://localhost:* and
       // http://127.0.0.1:* by default, so a reverse-proxied host needs an
       // explicit origin. Add one `--cors <origin>` per host that serves the UI.
       script: path.join(HOME, "bin", "kilo"),
-      args: "serve --port 4097 --hostname 127.0.0.1 --cors http://chat.localhost",
+      args: "serve --port 27183 --hostname 127.0.0.1 --cors http://chat.localhost",
       interpreter: "bash",
       cwd: HOME,
       env: {
+        // PM2 is the supervisor here, not an editor client, so disable the
+        // server's parent-watchdog. If KILO_PARENT_PID leaks in from the shell
+        // that launched pm2, the watchdog watches a dead PID and kills the
+        // server ~1s after startup (crash-restart loop). "0" disables it.
+        KILO_PARENT_PID: "0",
         // Loopback-only server. Leave the password unset for a local,
         // unauthenticated server, or set it to require HTTP Basic auth
         // (username defaults to "kilo"):

@@ -52,11 +52,17 @@ bun run preview
 ## Running with PM2
 
 `ecosystem.config.cjs` defines two PM2 apps: `kilo-server` (`kilo serve` on
-`127.0.0.1:4097`) and `kilo-chat` (the built UI on `127.0.0.1:4173`).
+`127.0.0.1:27183`) and `kilo-chat` (the built UI on `127.0.0.1:4173`).
 
-Port `4097` is used for the PM2 server because the VS Code extension starts its
-own server on `4096` while it is running; the UI autodetects both. Change the
-`--port` in the app's `args` if 4097 is taken too.
+Port `27183` is an uncommon high port chosen to avoid collisions with the VS Code
+extension, which starts its own server on a random port (`--port 0`). The UI
+autodetects it (see `DEFAULT_PORTS` in `src/api/discovery.ts`). Change the
+`--port` in the app's `args` if it is ever taken.
+
+The app sets `KILO_PARENT_PID=0` to disable the server's parent-watchdog. PM2 is
+the supervisor here (not an editor client), and if `KILO_PARENT_PID` leaks in from
+the shell that launched PM2, the watchdog watches a dead PID and kills the server
+about a second after startup, causing a crash-restart loop.
 
 ```bash
 bun run build                 # produce dist/ for the chat app
@@ -102,7 +108,7 @@ listed explicitly, or the browser blocks the API calls and discovery reports
 "No servers found":
 
 ```bash
-kilo serve --port 4097 --cors http://chat.localhost --cors http://my-host:8080
+kilo serve --port 27183 --cors http://chat.localhost --cors http://my-host:8080
 ```
 
 The `kilo-server` PM2 app in `ecosystem.config.cjs` already passes

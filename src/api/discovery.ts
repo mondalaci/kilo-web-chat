@@ -27,6 +27,8 @@ export interface DiscoverOptions {
  */
 export const DEFAULT_PORTS = [
   4096, 4097, 4098, 4099, 4100, 4101, 4102, 4103, 4104, 4105, 4110, 4120, 3000, 3456, 5000, 8000, 8080,
+  // Uncommon high port used by the bundled PM2 server (ecosystem.config.cjs).
+  27183,
 ]
 
 const DEFAULT_HOSTS = ["localhost"]
