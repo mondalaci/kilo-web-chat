@@ -22,6 +22,7 @@ import {
 import { Check, ChevronDown, Search, Sparkle } from "lucide-vue-next"
 import type { Model } from "@/api/types"
 import { useServer } from "@/stores/server"
+import { openRequests, shortcutsVisible } from "@/stores/shortcuts"
 
 const { providerGroups, providers, selectedModel, setModel } = useServer()
 
@@ -89,6 +90,14 @@ watch(open, async (value) => {
     query.value = ""
   }
 })
+
+// Opened by the Alt+M shortcut.
+watch(
+  () => openRequests.model,
+  () => {
+    open.value = true
+  },
+)
 
 const filteredGroups = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -192,7 +201,8 @@ function costColor(model: Model): string | undefined {
         @focus="selectDisplayValue"
         @click="selectDisplayValue"
       />
-      <ComboboxTrigger class="kilo-model-chevron" aria-label="Toggle models">
+      <ComboboxTrigger class="kilo-model-chevron" aria-label="Toggle models (Alt+M)">
+        <kbd v-if="shortcutsVisible" class="kbd">M</kbd>
         <ChevronDown :size="14" />
       </ComboboxTrigger>
     </ComboboxAnchor>

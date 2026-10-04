@@ -1,44 +1,133 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
-import { Menu, PanelLeft, X, CircleAlert } from "lucide-vue-next"
+import { computed, onBeforeUnmount, onMounted } from "vue"
+import { X, CircleAlert } from "lucide-vue-next"
+import type { AssistantMessage } from "@/api/types"
 import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
 import Composer from "./Composer.vue"
 import PromptDock from "./PromptDock.vue"
 import { useApp } from "@/stores/app"
+import { requestOpen, shortcutKeys, shortcutsVisible } from "@/stores/shortcuts"
+import { formatCost } from "@/utils/format"
 
 const app = useApp()
 const { current } = app.sessions
-const { error, isBusy } = app.chat
-const { live } = app.live
-
-const sidebarOpen = ref(false)
+const { error, messages } = app.chat
+const { providers, selectedModelInfo } = app.server
+const { newChat } = app
 
 const title = computed(() => current.value?.title || "New chat")
+
+// Session cost: the higher of the session total and the sum of assistant message
+// costs, matching the TUI.
+const sessionCost = computed(() => {
+  const total = messages.value.reduce((sum, item) => (item.info.role === "assistant" ? sum + (item.info.cost ?? 0) : sum), 0)
+  return Math.max(current.value?.cost ?? 0, total)
+})
+
+// Context usage is taken from the last assistant message that produced output.
+const lastAssistant = computed<AssistantMessage | null>(() => {
+  const list = messages.value
+  for (let i = list.length - 1; i >= 0; i--) {
+    const info = list[i].info
+    if (info.role === "assistant" && (info.tokens?.output ?? 0) > 0) return info
+  }
+  return null
+})
+
+const contextTokens = computed(() => {
+  const tokens = lastAssistant.value?.tokens
+  if (!tokens) return 0
+  return (
+    (tokens.input ?? 0) + (tokens.output ?? 0) + (tokens.reasoning ?? 0) + (tokens.cache?.read ?? 0) + (tokens.cache?.write ?? 0)
+  )
+})
+
+const contextLimit = computed(() => {
+  const info = lastAssistant.value
+  if (info) {
+    const model = providers.value.find((provider) => provider.id === info.providerID)?.models?.[info.modelID]
+    if (model?.limit?.context) return model.limit.context
+  }
+  return selectedModelInfo.value?.limit?.context ?? 0
+})
+
+const contextPercent = computed(() => (contextLimit.value ? Math.round((contextTokens.value / contextLimit.value) * 100) : 0))
+
+const costTitle = computed(() => `Session cost: ${formatCost(sessionCost.value)}`)
+const contextTitle = computed(() =>
+  contextLimit.value
+    ? `${contextTokens.value.toLocaleString()} tokens (${contextPercent.value}% of context)`
+    : `${contextTokens.value.toLocaleString()} tokens`,
+)
 
 function dismissError() {
   error.value = null
 }
+
+/**
+ * Shortcuts use `Alt` + a letter; matching on `event.code` keeps them working on
+ * macOS, where Option+letter produces a different `event.key`. Holding Alt
+ * reveals the key badges on the controls they trigger.
+ */
+function onKeyDown(event: KeyboardEvent) {
+  if (event.altKey) shortcutsVisible.value = true
+  if (!event.altKey) return
+  switch (event.code) {
+    case shortcutKeys.model:
+      event.preventDefault()
+      requestOpen("model")
+      break
+    case shortcutKeys.agent:
+      event.preventDefault()
+      requestOpen("agent")
+      break
+    case shortcutKeys.newChat:
+      event.preventDefault()
+      void newChat()
+      break
+    default:
+      break
+  }
+}
+
+function onKeyUp(event: KeyboardEvent) {
+  if (event.key === "Alt" || !event.altKey) shortcutsVisible.value = false
+}
+
+function onBlur() {
+  shortcutsVisible.value = false
+}
+
+onMounted(() => {
+  window.addEventListener("keydown", onKeyDown)
+  window.addEventListener("keyup", onKeyUp)
+  window.addEventListener("blur", onBlur)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onKeyDown)
+  window.removeEventListener("keyup", onKeyUp)
+  window.removeEventListener("blur", onBlur)
+  shortcutsVisible.value = false
+})
 </script>
 
 <template>
   <div class="shell">
-    <div class="sidebar-host" :class="{ open: sidebarOpen }">
-      <Sidebar @click="sidebarOpen = false" />
+    <div class="sidebar-host">
+      <Sidebar />
     </div>
-    <div v-if="sidebarOpen" class="scrim" @click="sidebarOpen = false"></div>
 
     <main class="main">
       <header class="topbar">
-        <button class="toggle" title="Toggle sidebar" @click="sidebarOpen = !sidebarOpen">
-          <Menu :size="18" class="menu-icon" />
-          <PanelLeft :size="18" class="panel-icon" />
-        </button>
         <h1 class="title">{{ title }}</h1>
-        <span class="status" :class="{ busy: isBusy, live }">
-          <span class="status-dot"></span>
-          {{ isBusy ? "working" : live ? "live" : "reconnecting" }}
-        </span>
+        <div v-if="current" class="stats">
+          <span class="stat" :title="costTitle">{{ formatCost(sessionCost) }}</span>
+          <span class="stat-divider">·</span>
+          <span class="stat" :class="{ warn: contextPercent >= 80 }" :title="contextTitle">
+            {{ contextLimit ? `${contextPercent}%` : "—" }}
+          </span>
+        </div>
       </header>
 
       <MessageThread />
@@ -66,8 +155,10 @@ function dismissError() {
   flex: none;
   height: 100%;
 }
-.scrim {
-  display: none;
+@media (max-width: 720px) {
+  .sidebar-host {
+    display: none;
+  }
 }
 .main {
   flex: 1;
@@ -87,23 +178,6 @@ function dismissError() {
   background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: blur(8px);
 }
-.toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  padding: 6px;
-  border-radius: var(--radius-sm);
-}
-.toggle:hover {
-  background: var(--bg-hover);
-  color: var(--text);
-}
-.panel-icon {
-  display: none;
-}
 .title {
   font-size: 15px;
   font-weight: 600;
@@ -113,31 +187,26 @@ function dismissError() {
   white-space: nowrap;
   flex: 1;
 }
-.status {
-  display: inline-flex;
+.stats {
+  flex: none;
+  display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-size: 11.5px;
   color: var(--text-faint);
-  flex: none;
+  font-variant-numeric: tabular-nums;
 }
-.status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-faint);
+.stat {
+  cursor: default;
 }
-.status.live .status-dot {
-  background: #4ade80;
+.stat:hover {
+  color: var(--text-muted);
 }
-.status.busy .status-dot {
-  background: var(--accent);
-  animation: kilo-pulse 1.2s ease-in-out infinite;
+.stat.warn {
+  color: var(--accent);
 }
-@keyframes kilo-pulse {
-  50% {
-    opacity: 0.35;
-  }
+.stat-divider {
+  opacity: 0.5;
 }
 .bottom {
   flex: none;
@@ -167,41 +236,5 @@ function dismissError() {
   border: none;
   color: inherit;
   display: inline-flex;
-}
-@media (max-width: 820px) {
-  .sidebar-host {
-    position: fixed;
-    z-index: 45;
-    top: 0;
-    left: 0;
-    transform: translateX(-100%);
-    transition: transform 0.2s ease;
-    box-shadow: var(--shadow);
-  }
-  .sidebar-host.open {
-    transform: translateX(0);
-  }
-  .scrim {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.45);
-    z-index: 44;
-  }
-  .menu-icon {
-    display: none;
-  }
-  .panel-icon {
-    display: block;
-  }
-}
-@media (min-width: 821px) {
-  .menu-icon {
-    display: none;
-  }
-  .panel-icon {
-    display: block;
-    opacity: 0.7;
-  }
 }
 </style>

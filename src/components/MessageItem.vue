@@ -68,19 +68,19 @@ function isImage(part: FilePart) {
       <div v-if="streaming && !isUser" class="caret"></div>
 
       <div v-if="errorMessage" class="error">{{ errorMessage }}</div>
-
-      <div v-if="meta && !streaming" class="meta">
-        <span>{{ meta.model }}</span>
-        <span v-if="meta.tokens">· {{ formatTokens(meta.tokens) }} tokens</span>
-        <span v-if="meta.cost">· {{ formatCost(meta.cost) }}</span>
-      </div>
     </div>
     <div v-if="isUser" class="avatar user-avatar" aria-hidden="true">You</div>
+    <div v-if="meta && !streaming" class="meta" :title="meta.model">
+      <div class="meta-model">{{ meta.model }}</div>
+      <div v-if="meta.tokens" class="meta-row">{{ formatTokens(meta.tokens) }} tokens</div>
+      <div v-if="meta.cost" class="meta-row">{{ formatCost(meta.cost) }}</div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .message {
+  position: relative;
   display: flex;
   gap: 12px;
   padding: 10px 0;
@@ -173,10 +173,44 @@ function isImage(part: FilePart) {
   font-size: 13px;
 }
 .meta {
-  margin-top: 6px;
-  font-size: 11.5px;
+  position: absolute;
+  top: 12px;
+  left: calc(100% + 14px);
+  width: max-content;
+  max-width: min(360px, calc(50vw - var(--content-width) / 2 - 40px));
+  font-size: 11px;
+  line-height: 1.5;
   color: var(--text-faint);
-  display: flex;
-  gap: 5px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  pointer-events: none;
+}
+.message:hover .meta {
+  opacity: 1;
+}
+.meta-model {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meta-row {
+  white-space: nowrap;
+}
+/* On narrower screens there is no side gutter, so overlay the info on hover. */
+@media (max-width: 1360px) {
+  .meta {
+    top: 6px;
+    left: auto;
+    right: 4px;
+    width: auto;
+    padding: 4px 8px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+  }
 }
 </style>

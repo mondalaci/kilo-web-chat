@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref, watch } from "vue"
 import {
   SelectContent,
   SelectIcon,
@@ -13,8 +14,19 @@ import {
 } from "reka-ui"
 import { Check, ChevronDown, Sparkles } from "lucide-vue-next"
 import { useServer } from "@/stores/server"
+import { openRequests, shortcutsVisible } from "@/stores/shortcuts"
 
 const { modes, selectedAgent } = useServer()
+
+const open = ref(false)
+
+// Opened by the Alt+A shortcut.
+watch(
+  () => openRequests.agent,
+  () => {
+    open.value = true
+  },
+)
 
 function label(name: string) {
   const agent = modes.value.find((item) => item.name === name)
@@ -23,10 +35,11 @@ function label(name: string) {
 </script>
 
 <template>
-  <SelectRoot v-model="selectedAgent">
-    <SelectTrigger class="trigger" aria-label="Mode">
+  <SelectRoot v-model="selectedAgent" v-model:open="open">
+    <SelectTrigger class="trigger" aria-label="Mode (Alt+A)">
       <Sparkles :size="14" class="trigger-icon" />
       <SelectValue :placeholder="label(selectedAgent)" />
+      <kbd v-if="shortcutsVisible" class="kbd">A</kbd>
       <SelectIcon class="trigger-chevron"><ChevronDown :size="14" /></SelectIcon>
     </SelectTrigger>
     <SelectPortal>

@@ -4,7 +4,7 @@ import { ArrowUp, Folder, Square, TriangleAlert, X } from "lucide-vue-next"
 import AgentSelector from "./AgentSelector.vue"
 import ModelSelector from "./ModelSelector.vue"
 import { useApp } from "@/stores/app"
-import { addImageFile, attachments, clearAttachments, draft, removeAttachment } from "@/stores/draft"
+import { addImageFile, attachments, clearAttachments, composerFocusRequest, draft, removeAttachment } from "@/stores/draft"
 import { useServer } from "@/stores/server"
 
 const app = useApp()
@@ -26,6 +26,7 @@ function resize() {
 }
 
 watch(draft, () => nextTick(resize))
+watch(composerFocusRequest, () => nextTick(() => textarea.value?.focus()))
 onMounted(resize)
 
 function handleFiles(files: ArrayLike<File> | null | undefined) {
@@ -116,7 +117,6 @@ const projectName = () => directory.value?.split("/").filter(Boolean).pop()
         v-model="draft"
         class="input"
         rows="1"
-        placeholder="Message Kilo Code…  (paste or drop images)"
         spellcheck="false"
         @keydown="onKeydown"
         @paste="onPaste"

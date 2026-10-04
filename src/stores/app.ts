@@ -2,6 +2,7 @@ import type { Credentials } from "@/api/client"
 import type { InstanceInfo } from "@/api/discovery"
 import { useChat } from "./chat"
 import { useConnection } from "./connection"
+import { requestComposerFocus } from "./draft"
 import { useLive } from "./live"
 import { useServer } from "./server"
 import { useSessions } from "./sessions"
@@ -63,6 +64,7 @@ export function useApp() {
       server.directory.value,
     )
     await selectSession(session.id)
+    requestComposerFocus()
     return session
   }
 

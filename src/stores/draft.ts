@@ -14,6 +14,13 @@ export const draft = ref("")
 /** Images pasted or dropped into the composer, sent as file parts. */
 export const attachments = ref<Attachment[]>([])
 
+/** Bumped to ask the composer to focus its input (e.g. after a new chat). */
+export const composerFocusRequest = ref(0)
+
+export function requestComposerFocus() {
+  composerFocusRequest.value += 1
+}
+
 let counter = 0
 function nextId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID()

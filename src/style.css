@@ -294,6 +294,29 @@ a {
   background: var(--border);
   margin: 4px;
 }
+
+/* Shortcut key badge shown while the modifier is held. */
+.kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-active);
+  color: var(--text-muted);
+}
+.kbd.floating {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
 .kilo-dialog {
   position: fixed;
   z-index: 50;

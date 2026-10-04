@@ -9,7 +9,6 @@ import {
   DropdownMenuTrigger,
 } from "reka-ui"
 import {
-  Check,
   LogOut,
   MessageSquarePlus,
   MoreHorizontal,
@@ -25,18 +24,37 @@ import Spinner from "./Spinner.vue"
 import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
 import { theme, toggleTheme } from "@/theme"
+import { shortcutsVisible } from "@/stores/shortcuts"
 
 const app = useApp()
 const { sorted, currentID, loading } = app.sessions
 const { connected, connectError } = app.connection
 const { live, connecting } = app.live
+const { isBusy } = app.chat
 const { newChat, selectSession, removeSession, renameSession, disconnect } = app
 
 const editingID = ref<string | null>(null)
 const editTitle = ref("")
 const editInput = ref<HTMLInputElement | null>(null)
 
-const instanceVersion = computed(() => connected.value?.version ?? "")
+type ConnectionState = "offline" | "connecting" | "working" | "live" | "reconnecting"
+const connectionState = computed<ConnectionState>(() => {
+  if (!connected.value) return "offline"
+  if (connecting.value) return "connecting"
+  if (isBusy.value) return "working"
+  if (live.value) return "live"
+  return "reconnecting"
+})
+const connectionLabel = computed(
+  () =>
+    ({
+      offline: "offline",
+      connecting: "connecting…",
+      working: "working",
+      live: "live",
+      reconnecting: "reconnecting…",
+    })[connectionState.value],
+)
 
 function setRenameInput(el: Element | { $el?: Element } | null) {
   if (!el) {
@@ -78,9 +96,10 @@ function cancelRename() {
       <button class="icon" title="New chat" @click="newChat()"><MessageSquarePlus :size="18" /></button>
     </header>
 
-    <button class="new-chat" @click="newChat()">
+    <button class="new-chat" title="New chat (Alt+N)" @click="newChat()">
       <MessageSquarePlus :size="16" />
       New chat
+      <kbd v-if="shortcutsVisible" class="kbd">N</kbd>
     </button>
 
     <nav class="sessions">
@@ -128,18 +147,17 @@ function cancelRename() {
     </nav>
 
     <footer class="foot">
-      <div class="conn" :title="connectError ?? connected?.origin">
-        <component :is="connected ? (live ? Wifi : WifiOff) : Server" :size="14" :class="{ ok: live, warn: connected && !live }" />
+      <div class="conn" :class="connectionState" :title="connectError ?? connected?.origin">
+        <component
+          :is="connected ? (connectionState === 'live' || connectionState === 'working' ? Wifi : WifiOff) : Server"
+          :size="14"
+          class="conn-icon"
+        />
         <div class="conn-text">
           <span class="conn-origin">{{ connected?.origin ?? "Not connected" }}</span>
-          <span class="conn-status">
-            <template v-if="connecting">connecting…</template>
-            <template v-else-if="live">live</template>
-            <template v-else-if="connected">reconnecting…</template>
-            <template v-else>{{ instanceVersion }}</template>
-          </span>
+          <span class="conn-status">{{ connectionLabel }}</span>
         </div>
-        <Check v-if="live" :size="13" class="live-dot" />
+        <span class="conn-dot"></span>
       </div>
       <div class="foot-actions">
         <button class="icon" :title="theme === 'dark' ? 'Light theme' : 'Dark theme'" @click="toggleTheme()">
@@ -201,6 +219,9 @@ function cancelRename() {
 }
 .new-chat:hover {
   background: var(--bg-hover);
+}
+.new-chat .kbd {
+  margin-left: auto;
 }
 .sessions {
   flex: 1;
@@ -287,10 +308,15 @@ function cancelRename() {
   min-width: 0;
   color: var(--text-muted);
 }
-.conn .ok {
+.conn-icon {
+  flex: none;
+}
+.conn.live .conn-icon,
+.conn.working .conn-icon {
   color: #4ade80;
 }
-.conn .warn {
+.conn.connecting .conn-icon,
+.conn.reconnecting .conn-icon {
   color: var(--accent);
 }
 .conn-text {
@@ -310,9 +336,28 @@ function cancelRename() {
   font-size: 10.5px;
   color: var(--text-faint);
 }
-.live-dot {
-  color: #4ade80;
+.conn-dot {
   flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.conn.live .conn-dot {
+  background: #4ade80;
+}
+.conn.working .conn-dot {
+  background: var(--accent);
+  animation: kilo-pulse 1.2s ease-in-out infinite;
+}
+.conn.connecting .conn-dot,
+.conn.reconnecting .conn-dot {
+  background: var(--accent);
+}
+@keyframes kilo-pulse {
+  50% {
+    opacity: 0.35;
+  }
 }
 .foot-actions {
   display: flex;
