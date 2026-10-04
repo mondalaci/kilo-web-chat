@@ -39,6 +39,7 @@ module.exports = {
       autorestart: true,
       max_restarts: 10,
       min_uptime: 10000,
+      exp_backoff_restart_delay: 100,
       restart_delay: 2000,
       kill_timeout: 10000,
     },
