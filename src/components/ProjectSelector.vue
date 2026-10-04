@@ -127,7 +127,7 @@ watch(
     </ComboboxAnchor>
 
     <ComboboxPortal>
-      <ComboboxContent class="kilo-menu kilo-project-menu" position="popper" side="top" :side-offset="8" align="end">
+      <ComboboxContent class="kilo-menu kilo-project-menu" position="popper" side="bottom" :side-offset="6" align="start">
         <ComboboxViewport class="kilo-project-scroll">
           <ComboboxEmpty class="kilo-project-empty">
             {{ query ? `No projects match “${query}”.` : "No projects." }}

@@ -4,7 +4,6 @@ import { ArrowUp, Square, TriangleAlert, X } from "lucide-vue-next"
 import AgentSelector from "./AgentSelector.vue"
 import ModelSelector from "./ModelSelector.vue"
 import VariantSelector from "./VariantSelector.vue"
-import ProjectSelector from "./ProjectSelector.vue"
 import { useApp } from "@/stores/app"
 import { addImageFile, attachments, clearAttachments, composerFocusRequest, draft, removeAttachment } from "@/stores/draft"
 import { useServer } from "@/stores/server"
@@ -140,7 +139,6 @@ function onKeydown(event: KeyboardEvent) {
           </span>
         </div>
         <div class="bar-right">
-          <ProjectSelector />
           <button v-if="isBusy" class="send stop" title="Stop" @click="stop">
             <Square :size="14" fill="currentColor" />
           </button>
@@ -162,9 +160,7 @@ function onKeydown(event: KeyboardEvent) {
 <style scoped>
 .composer-wrap {
   padding: 6px 20px 12px;
-  /* Wider than the message column so the mode, model and effort selectors fit
-     on one row. */
-  max-width: 58rem;
+  max-width: var(--content-width);
   margin: 0 auto;
   width: 100%;
 }

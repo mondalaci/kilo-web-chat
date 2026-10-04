@@ -18,6 +18,7 @@ import {
   Trash2,
 } from "lucide-vue-next"
 import Spinner from "./Spinner.vue"
+import ProjectSelector from "./ProjectSelector.vue"
 import ToolsRow from "./ToolsRow.vue"
 import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
@@ -161,18 +162,13 @@ function onSessionsKeydown(event: KeyboardEvent) {
 <template>
   <aside class="sidebar">
     <header class="head">
-      <div class="brand">
-        <span class="logo">K</span>
-        <span class="brand-name">Kilo Chat</span>
-      </div>
-      <button class="icon" title="New chat" @click="newChat()"><MessageSquarePlus :size="18" /></button>
+      <span class="logo">K</span>
+      <ProjectSelector />
+      <button class="icon new-chat-btn" title="New chat (Alt+N)" @click="newChat()">
+        <MessageSquarePlus :size="18" />
+        <kbd v-if="shortcutsVisible" class="kbd floating">N</kbd>
+      </button>
     </header>
-
-    <button class="new-chat" title="New chat (Alt+N)" @click="newChat()">
-      <MessageSquarePlus :size="16" />
-      New chat
-      <kbd v-if="shortcutsVisible" class="kbd floating">N</kbd>
-    </button>
 
     <div class="sessions-wrap">
       <nav ref="sessionsNav" class="sessions" tabindex="-1" @keydown="onSessionsKeydown" @blur="endNav">
@@ -255,15 +251,11 @@ function onSessionsKeydown(event: KeyboardEvent) {
 .head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px 12px 8px;
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 9px;
+  gap: 8px;
+  padding: 10px;
 }
 .logo {
+  flex: none;
   width: 26px;
   height: 26px;
   border-radius: 7px;
@@ -274,24 +266,22 @@ function onSessionsKeydown(event: KeyboardEvent) {
   font-weight: 700;
   font-size: 14px;
 }
-.brand-name {
-  font-weight: 600;
-  font-size: 14px;
+/* Project selector fills the space between the logo and the new-chat button. */
+.head :deep(.kilo-project-root) {
+  flex: 1;
+  min-width: 0;
 }
-.new-chat {
+.head :deep(.kilo-project-anchor) {
+  width: 100%;
+}
+.head :deep(.kilo-project-input) {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.new-chat-btn {
   position: relative;
-  margin: 4px 10px 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--bg-elevated);
-  font-size: 13.5px;
-}
-.new-chat:hover {
-  background: var(--bg-hover);
+  flex: none;
 }
 .sessions-wrap {
   position: relative;
