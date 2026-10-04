@@ -217,6 +217,20 @@ a {
   border-radius: var(--radius);
 }
 
+.markdown .mermaid-diagram {
+  margin: 0 0 0.9em;
+  padding: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+  text-align: center;
+}
+.markdown .mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
 /* highlight.js (github-dark-ish) */
 .hljs-comment,
 .hljs-quote {

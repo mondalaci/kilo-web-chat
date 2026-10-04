@@ -50,7 +50,7 @@ function isImage(part: FilePart) {
     <div v-if="!isUser" class="avatar" aria-hidden="true">K</div>
     <div class="bubble" :class="isUser ? 'user-bubble' : 'assistant-bubble'">
       <template v-for="part in contentParts" :key="part.id">
-        <Markdown v-if="part.type === 'text' && !isUser" :text="(part as TextPart).text" />
+        <Markdown v-if="part.type === 'text' && !isUser" :text="(part as TextPart).text" :streaming="streaming" />
         <p v-else-if="part.type === 'text' && isUser" class="user-text">{{ (part as TextPart).text }}</p>
 
         <PartReasoning v-else-if="part.type === 'reasoning' && !isUser" :part="part" />
