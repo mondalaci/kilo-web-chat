@@ -60,6 +60,9 @@ watch(loading, (value) => {
   overflow-y: auto;
   padding: 20px 20px 0;
   scroll-behavior: smooth;
+  /* Reserve a symmetric gutter so a scrollbar does not shift the centered
+     content column off the composer's center. */
+  scrollbar-gutter: stable both-edges;
 }
 .loading {
   display: grid;
