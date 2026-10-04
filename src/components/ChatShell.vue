@@ -129,6 +129,10 @@ function onKeyDown(event: KeyboardEvent) {
       event.preventDefault()
       requestOpen("sessions")
       break
+    case shortcutKeys.effort:
+      event.preventDefault()
+      requestOpen("effort")
+      break
     case shortcutKeys.newChat:
       event.preventDefault()
       void newChat()

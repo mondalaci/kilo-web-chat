@@ -99,6 +99,15 @@ watch(
   },
 )
 
+// Keep the (uncontrolled) input showing the friendly model name. This matters
+// on first load, when the input renders its raw id before providers arrive.
+watch([providers, selectedModel], () => {
+  if (open.value || query.value) return
+  const node = inputNode()
+  const name = displayValue(selectedKey.value)
+  if (node && node.value !== name) node.value = name
+})
+
 const filteredGroups = computed(() => {
   const q = query.value.trim().toLowerCase()
   return providerGroups.value

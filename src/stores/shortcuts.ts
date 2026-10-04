@@ -10,9 +10,9 @@ import { reactive, ref } from "vue"
  */
 export const shortcutsVisible = ref(false)
 
-export const openRequests = reactive({ model: 0, agent: 0, project: 0, sessions: 0 })
+export const openRequests = reactive({ model: 0, agent: 0, project: 0, sessions: 0, effort: 0 })
 
-export function requestOpen(which: "model" | "agent" | "project" | "sessions") {
+export function requestOpen(which: "model" | "agent" | "project" | "sessions" | "effort") {
   openRequests[which] += 1
 }
 
@@ -24,4 +24,5 @@ export const shortcutKeys = {
   newChat: "KeyN",
   focusChat: "KeyC",
   sessions: "KeyS",
+  effort: "KeyE",
 } as const

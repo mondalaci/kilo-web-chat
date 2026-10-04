@@ -95,6 +95,12 @@ const selectedModelInfo = computed<Model | undefined>(() => {
   return provider?.models?.[ref_.modelID]
 })
 
+/** Variant names available for the selected model (reasoning effort, etc.). */
+const selectedModelVariants = computed<string[]>(() => Object.keys(selectedModelInfo.value?.variants ?? {}))
+
+/** Currently selected variant for the selected model. */
+const selectedVariant = computed<string | undefined>(() => selectedModel.value?.variant)
+
 function parseModelString(value: string | undefined): ModelRef | null {
   if (!value) return null
   const [providerID, ...rest] = value.split("/")
@@ -111,6 +117,20 @@ export function useServer() {
     selectedModel.value = resolveDefaultModel()
   }
 
+  /** Last variant chosen for a model, from the server's model state. */
+  function variantFor(providerID: string, modelID: string): string | undefined {
+    return modelState.value?.variant?.[`${providerID}/${modelID}`]
+  }
+
+  /** Attach the remembered variant (if it is valid for the model). */
+  function withVariant(ref: ModelRef): ModelRef {
+    const info = providers.value.find((item) => item.id === ref.providerID)?.models?.[ref.modelID]
+    const candidate = ref.variant ?? variantFor(ref.providerID, ref.modelID)
+    if (candidate && info?.variants?.[candidate]) return { ...ref, variant: candidate }
+    const { variant: _drop, ...rest } = ref
+    return rest
+  }
+
   /**
    * Resolve the same default the server would use when a prompt omits a model:
    * saved pref → agent model → model-state for the agent → config.model → the
@@ -118,16 +138,16 @@ export function useServer() {
    */
   function resolveDefaultModel(): ModelRef | null {
     const defaults = prefs.value[origin.value ?? ""] ?? {}
-    if (defaults.model) return defaults.model
+    if (defaults.model) return withVariant(defaults.model)
     const agentModel = selectedAgentInfo.value?.model
-    if (agentModel) return agentModel
+    if (agentModel) return withVariant(agentModel)
     const agentState = modelState.value?.model?.[selectedAgent.value]
-    if (agentState) return agentState
+    if (agentState) return withVariant(agentState)
     const cfgModel = parseModelString(config.value?.model)
-    if (cfgModel) return cfgModel
+    if (cfgModel) return withVariant(cfgModel)
     for (const ref of modelState.value?.recent ?? []) {
       const provider = providers.value.find((item) => item.id === ref.providerID)
-      if (provider?.models?.[ref.modelID]) return ref
+      if (provider?.models?.[ref.modelID]) return withVariant(ref)
     }
     return null
   }
@@ -225,9 +245,19 @@ export function useServer() {
   }
 
   function setModel(model: ModelRef) {
-    selectedModel.value = model
+    const next = withVariant({ providerID: model.providerID, modelID: model.modelID })
+    selectedModel.value = next
     const key = origin.value ?? ""
-    prefs.value = { ...prefs.value, [key]: { ...prefs.value[key], model } }
+    prefs.value = { ...prefs.value, [key]: { ...prefs.value[key], model: next } }
+    persistPrefs()
+  }
+
+  function setVariant(variant: string) {
+    if (!selectedModel.value) return
+    const next = { ...selectedModel.value, variant }
+    selectedModel.value = next
+    const key = origin.value ?? ""
+    prefs.value = { ...prefs.value, [key]: { ...prefs.value[key], model: next } }
     persistPrefs()
   }
 
@@ -252,6 +282,8 @@ export function useServer() {
     selectedAgentInfo,
     selectedModel,
     selectedModelInfo,
+    selectedModelVariants,
+    selectedVariant,
     directory,
     load,
     setDirectory,
@@ -260,5 +292,6 @@ export function useServer() {
     reset,
     setAgent,
     setModel,
+    setVariant,
   }
 }

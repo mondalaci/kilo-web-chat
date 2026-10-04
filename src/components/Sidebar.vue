@@ -14,11 +14,8 @@ import {
   MoreHorizontal,
   Moon,
   Pencil,
-  Server,
   Sun,
   Trash2,
-  Wifi,
-  WifiOff,
 } from "lucide-vue-next"
 import Spinner from "./Spinner.vue"
 import { useApp } from "@/stores/app"
@@ -225,11 +222,6 @@ function onSessionsKeydown(event: KeyboardEvent) {
 
     <footer class="foot">
       <div class="conn" :class="connectionState" :title="connectError ?? connected?.origin">
-        <component
-          :is="connected ? (connectionState === 'live' || connectionState === 'working' ? Wifi : WifiOff) : Server"
-          :size="14"
-          class="conn-icon"
-        />
         <div class="conn-text">
           <span class="conn-origin">{{ connected?.origin ?? "Not connected" }}</span>
           <span class="conn-status">{{ connectionLabel }}</span>
@@ -397,17 +389,6 @@ function onSessionsKeydown(event: KeyboardEvent) {
   gap: 8px;
   min-width: 0;
   color: var(--text-muted);
-}
-.conn-icon {
-  flex: none;
-}
-.conn.live .conn-icon,
-.conn.working .conn-icon {
-  color: #4ade80;
-}
-.conn.connecting .conn-icon,
-.conn.reconnecting .conn-icon {
-  color: var(--accent);
 }
 .conn-text {
   display: flex;

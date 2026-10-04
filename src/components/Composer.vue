@@ -3,6 +3,7 @@ import { nextTick, onMounted, ref, watch } from "vue"
 import { ArrowUp, Square, TriangleAlert, X } from "lucide-vue-next"
 import AgentSelector from "./AgentSelector.vue"
 import ModelSelector from "./ModelSelector.vue"
+import VariantSelector from "./VariantSelector.vue"
 import ProjectSelector from "./ProjectSelector.vue"
 import { useApp } from "@/stores/app"
 import { addImageFile, attachments, clearAttachments, composerFocusRequest, draft, removeAttachment } from "@/stores/draft"
@@ -12,7 +13,7 @@ import { shortcutsVisible } from "@/stores/shortcuts"
 const app = useApp()
 const { sending, isBusy } = app.chat
 const { abort, sendMessage } = app
-const { selectedModelInfo } = useServer()
+const { selectedModelInfo, selectedModelVariants } = useServer()
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const dragging = ref(false)
@@ -133,6 +134,7 @@ function onKeydown(event: KeyboardEvent) {
         <div class="bar-left">
           <AgentSelector />
           <ModelSelector />
+          <VariantSelector v-if="selectedModelVariants.length" />
           <span v-if="attachmentsUnsupported()" class="warn" title="The selected model may not accept images">
             <TriangleAlert :size="12" /> model may not accept images
           </span>
@@ -160,7 +162,9 @@ function onKeydown(event: KeyboardEvent) {
 <style scoped>
 .composer-wrap {
   padding: 8px 20px 14px;
-  max-width: var(--content-width);
+  /* Wider than the message column so the mode, model and effort selectors fit
+     on one row. */
+  max-width: 58rem;
   margin: 0 auto;
   width: 100%;
 }
