@@ -306,15 +306,28 @@ onBeforeUnmount(() => {
   background: var(--bg);
 }
 .topbar {
+  position: relative;
+  z-index: 2;
   height: var(--header-height);
   flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 0 18px;
-  border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg) 85%, transparent);
   backdrop-filter: blur(8px);
+}
+/* Fade the top of the conversation toward the header. */
+.topbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 14px;
+  background: linear-gradient(to bottom, var(--bg), transparent);
+  pointer-events: none;
+  z-index: 1;
 }
 .title {
   font-size: 15px;
