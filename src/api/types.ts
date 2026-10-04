@@ -51,6 +51,7 @@ export interface SessionInfo {
   tokens?: Tokens
   time: TimeRange
   summary?: { additions: number; deletions: number; files: number }
+  share?: { url: string }
   revert?: { messageID: string }
   [key: string]: unknown
 }

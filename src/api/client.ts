@@ -171,6 +171,14 @@ export class ServerClient {
     return this.request<boolean>(`/session/${sessionID}`, { ...opts, method: "DELETE" })
   }
 
+  shareSession(sessionID: string, opts: RequestOptions = {}) {
+    return this.request<SessionInfo>(`/session/${sessionID}/share`, { ...opts, method: "POST" })
+  }
+
+  unshareSession(sessionID: string, opts: RequestOptions = {}) {
+    return this.request<SessionInfo>(`/session/${sessionID}/share`, { ...opts, method: "DELETE" })
+  }
+
   messages(sessionID: string, opts: RequestOptions = {}) {
     return this.request<MessageWithParts[]>(`/session/${sessionID}/message`, opts)
   }

@@ -57,27 +57,31 @@ function onToggle(id: string) {
       <span class="tools-count">{{ enabledCount }}/{{ tools.length }}</span>
       <kbd v-if="shortcutsVisible" class="kbd floating">T</kbd>
     </button>
-    <div v-show="expanded" class="tools-chips">
-      <button
-        v-for="id in tools"
-        :key="id"
-        type="button"
-        class="tool-chip"
-        :class="displayState(id)"
-        @click="onToggle(id)"
-      >
-        {{ id }}
-      </button>
-      <a
-        class="tools-help"
-        :href="TOOLS_DOCS_URL"
-        target="_blank"
-        rel="noreferrer"
-        title="Tool documentation"
-        aria-label="Tool documentation"
-      >
-        ?
-      </a>
+    <div class="tools-collapse" :class="{ open: expanded }">
+      <div class="tools-collapse-inner">
+        <div class="tools-chips">
+          <button
+            v-for="id in tools"
+            :key="id"
+            type="button"
+            class="tool-chip"
+            :class="displayState(id)"
+            @click="onToggle(id)"
+          >
+            {{ id }}
+          </button>
+          <a
+            class="tools-help"
+            :href="TOOLS_DOCS_URL"
+            target="_blank"
+            rel="noreferrer"
+            title="Tool documentation"
+            aria-label="Tool documentation"
+          >
+            ?
+          </a>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -119,12 +123,23 @@ function onToggle(id: string) {
   font-size: 10.5px;
   font-variant-numeric: tabular-nums;
 }
+.tools-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+.tools-collapse.open {
+  grid-template-rows: 1fr;
+}
+.tools-collapse-inner {
+  overflow: hidden;
+}
 .tools-chips {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  margin-top: 8px;
+  padding-top: 8px;
 }
 .tool-chip {
   font-family: var(--font-mono);

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
-import { X, CircleAlert } from "lucide-vue-next"
+import { X, CircleAlert, Check, Share2 } from "lucide-vue-next"
 import type { AssistantMessage } from "@/api/types"
 import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
@@ -12,10 +12,53 @@ import { requestOpen, shortcutKeys, shortcutsVisible } from "@/stores/shortcuts"
 import { formatCost } from "@/utils/format"
 
 const app = useApp()
-const { current } = app.sessions
+const { current, currentID } = app.sessions
 const { error, messages } = app.chat
 const { providers, selectedModelInfo } = app.server
 const { newChat } = app
+
+const shareState = ref<"idle" | "shared" | "copied">("idle")
+
+function flashShare(state: "shared" | "copied") {
+  shareState.value = state
+  setTimeout(() => {
+    shareState.value = "idle"
+  }, 1500)
+}
+
+/**
+ * Share via Kilo's server-side share feature (a public link). Falls back to
+ * copying the local per-chat URL if the server cannot create a share.
+ */
+async function shareChat() {
+  const sessionID = currentID.value
+  if (sessionID) {
+    const shared = await app.shareSession(sessionID)
+    if (shared) {
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: title.value, url: shared })
+          flashShare("shared")
+          return
+        } catch {
+          /* user cancelled */
+        }
+      }
+      window.open(shared, "_blank", "noopener")
+      flashShare("shared")
+      return
+    }
+  }
+  const url = new URL(window.location.href)
+  if (sessionID) url.searchParams.set("session", sessionID)
+  else url.searchParams.delete("session")
+  try {
+    await navigator.clipboard.writeText(url.toString())
+    flashShare("copied")
+  } catch {
+    /* clipboard unavailable */
+  }
+}
 
 const SIDEBAR_KEY = "kilo-web-chat.sidebar-width"
 const SIDEBAR_MIN = 180
@@ -195,6 +238,16 @@ onBeforeUnmount(() => {
             {{ contextLimit ? `${contextPercent}%` : "—" }}
           </span>
         </div>
+        <button
+          class="share-btn"
+          :class="{ active: shareState !== 'idle' }"
+          :title="shareState === 'shared' ? 'Shared' : shareState === 'copied' ? 'Link copied' : 'Share chat'"
+          aria-label="Share chat"
+          @click="shareChat"
+        >
+          <Check v-if="shareState !== 'idle'" :size="16" />
+          <Share2 v-else :size="16" />
+        </button>
       </header>
 
       <MessageThread />
@@ -292,6 +345,26 @@ onBeforeUnmount(() => {
 }
 .stat-divider {
   opacity: 0.5;
+}
+.share-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 12px;
+  padding: 5px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+}
+.share-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.share-btn.copied,
+.share-btn.active {
+  color: #4ade80;
 }
 .bottom {
   position: relative;

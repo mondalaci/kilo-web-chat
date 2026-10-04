@@ -157,6 +157,18 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
     await sessions.rename(client, sessionID, title, server.directory.value)
   }
 
+  /** Create/return the server-side public share link for a session. */
+  async function shareSession(sessionID: string): Promise<string | null> {
+    const client = connection.client.value
+    if (!client) return null
+    try {
+      const info = await client.shareSession(sessionID, { directory: server.directory.value })
+      return info?.share?.url ?? null
+    } catch {
+      return null
+    }
+  }
+
   async function replyPermission(requestID: string, reply: "once" | "always" | "reject") {
     const client = connection.client.value
     if (!client) return
@@ -191,6 +203,7 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
     abort,
     removeSession,
     renameSession,
+    shareSession,
     replyPermission,
     replyQuestion,
     rejectQuestion,
