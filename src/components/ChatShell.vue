@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { X, CircleAlert, Check, Share2 } from "lucide-vue-next"
 import type { AssistantMessage } from "@/api/types"
 import Sidebar from "./Sidebar.vue"
@@ -99,6 +99,15 @@ function startResize(event: PointerEvent) {
 }
 
 const title = computed(() => current.value?.title || "New chat")
+
+// Reflect the active chat in the browser tab title.
+watch(
+  title,
+  (value) => {
+    document.title = current.value ? `${value} · Kilo Chat` : "Kilo Chat"
+  },
+  { immediate: true },
+)
 
 // Session cost: the higher of the session total and the sum of assistant message
 // costs, matching the TUI.
