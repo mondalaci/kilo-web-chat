@@ -307,7 +307,7 @@ function onSessionsKeydown(event: KeyboardEvent) {
   flex-direction: row;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 4px 10px;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
