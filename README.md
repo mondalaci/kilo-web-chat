@@ -44,7 +44,7 @@ The model picker (connected providers first, sortable/searchable, priced):
 
 ```bash
 bun install      # or: npm install
-bun run dev      # http://127.0.0.1:5173
+bun run dev      # http://127.0.0.1:4173
 ```
 
 Then start a server (or use one already running):
@@ -69,7 +69,13 @@ bun run preview
 ## Running with PM2
 
 `ecosystem.config.cjs` defines two PM2 apps: `kilo-server` (`kilo serve` on
-`127.0.0.1:27183`) and `kilo-chat` (the built UI on `127.0.0.1:4173`).
+`127.0.0.1:27183`) and `kilo-chat` (the **Vite dev server** on `127.0.0.1:4173`).
+
+`kilo-chat` runs in dev mode, so it serves `src/` directly and hot-reloads on
+every file change — no rebuild needed and the UI is always current. Editing
+files under `src/` triggers HMR in the browser. To serve a static production
+build instead, run `bun run build` and switch the app's `args` to
+`preview --host 127.0.0.1 --port 4173`.
 
 Port `27183` is an uncommon high port chosen to avoid collisions with the VS Code
 extension, which starts its own server on a random port (`--port 0`). The UI
@@ -82,16 +88,15 @@ the shell that launched PM2, the watchdog watches a dead PID and kills the serve
 about a second after startup, causing a crash-restart loop.
 
 ```bash
-bun run build                 # produce dist/ for the chat app
 pm2 start ecosystem.config.cjs
 pm2 save                      # persist the process list
 pm2 startup                   # optional: relaunch on boot
 ```
 
-To apply config changes to an already-running app:
+To apply config changes (including changed `args`) to an already-running app:
 
 ```bash
-pm2 delete kilo-server && pm2 start ecosystem.config.cjs --only kilo-server
+pm2 delete kilo-chat && pm2 start ecosystem.config.cjs --only kilo-chat
 pm2 save
 ```
 

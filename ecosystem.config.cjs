@@ -4,8 +4,9 @@
 //   pm2 save
 //   pm2 startup        # to relaunch on boot
 //
-// The chat UI is served from a static build, so run `bun run build` (or
-// `npm run build`) before starting it. Logs go to ~/.pm2/logs by default.
+// The chat UI runs the Vite dev server so edits under src/ are picked up live
+// via HMR (http://chat.localhost -> nginx -> 127.0.0.1:4173). Logs go to
+// ~/.pm2/logs by default.
 
 const path = require("node:path")
 
@@ -52,12 +53,13 @@ module.exports = {
     {
       name: "kilo-chat",
       cwd: CHAT_DIR,
-      // Serve the production build (dist/) on a fixed port.
+      // Vite dev server: serves src/ directly and hot-reloads on file changes,
+      // so the UI is always up to date without rebuilding dist/.
       script: path.join(CHAT_DIR, "node_modules", "vite", "bin", "vite.js"),
-      args: "preview --host 127.0.0.1 --port 4173",
+      args: "--host 127.0.0.1 --port 4173",
       interpreter: "node",
       env: {
-        NODE_ENV: "production",
+        NODE_ENV: "development",
       },
       autorestart: true,
       max_restarts: 20,
