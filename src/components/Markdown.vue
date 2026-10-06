@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue"
+import { computed, createApp, onBeforeUnmount, onMounted, ref, watch, type App as VueApp } from "vue"
 import { marked } from "marked"
 import DOMPurify from "dompurify"
 import hljs from "highlight.js/lib/common"
+import PronunciationBlock from "./PronunciationBlock.vue"
 
 const props = defineProps<{ text: string; streaming?: boolean }>()
 const root = ref<HTMLElement | null>(null)
@@ -38,6 +39,8 @@ function decorateCode() {
     if (!code || pre.previousElementSibling?.classList.contains("code-block")) return
     // Mermaid blocks are rendered to diagrams separately.
     if (code.classList.contains("language-mermaid") || code.classList.contains("lang-mermaid")) return
+    // Pronunciation blocks are rendered as interactive audio widgets.
+    if (isPronunciation(code)) return
 
     const wrapper = document.createElement("div")
     wrapper.className = "code-block"
@@ -113,13 +116,56 @@ async function renderMermaid() {
   }
 }
 
+/* ------------------------------- Pronunciation ------------------------------ */
+
+const PRONUNCIATION_SELECTOR = "pre > code.language-pronunciation, pre > code.lang-pronunciation"
+
+function isPronunciation(code: Element) {
+  return code.classList.contains("language-pronunciation") || code.classList.contains("lang-pronunciation")
+}
+
+// Each widget is a real Vue app mounted into the rendered markdown. The markdown
+// HTML is replaced wholesale on every update, so widgets whose host detached are
+// unmounted and rebuilt below.
+let pronunciationApps: Array<{ app: VueApp; host: HTMLElement }> = []
+
+function prunePronunciation() {
+  pronunciationApps = pronunciationApps.filter(({ app, host }) => {
+    if (host.isConnected) return true
+    app.unmount()
+    return false
+  })
+}
+
+function renderPronunciation() {
+  prunePronunciation()
+  // While a message streams the block may be incomplete; show the code and wait.
+  if (props.streaming || !root.value) return
+  for (const node of root.value.querySelectorAll<HTMLElement>(PRONUNCIATION_SELECTOR)) {
+    const pre = node.closest("pre")
+    if (!pre) continue
+    const source = node.textContent ?? ""
+    const host = document.createElement("div")
+    host.className = "pronunciation-host"
+    const app = createApp(PronunciationBlock, { text: source })
+    app.mount(host)
+    pre.replaceWith(host)
+    pronunciationApps.push({ app, host })
+  }
+}
+
 function renderAll() {
   highlight()
   decorateCode()
   void renderMermaid()
+  renderPronunciation()
 }
 
 onMounted(renderAll)
+onBeforeUnmount(() => {
+  for (const { app } of pronunciationApps) app.unmount()
+  pronunciationApps = []
+})
 watch(html, () => requestAnimationFrame(renderAll))
 watch(
   () => props.streaming,
