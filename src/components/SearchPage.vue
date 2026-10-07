@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { Search, X } from "lucide-vue-next"
-import type { SessionInfo } from "@/api/types"
+import { searchContent, searchHealth, listAllSessions } from "@/api/search"
 import { useApp } from "@/stores/app"
 import { closeSearch } from "@/stores/search"
 import { relativeTime } from "@/utils/format"
@@ -10,9 +10,23 @@ const app = useApp()
 const client = app.connection.client
 const directory = app.server.directory
 
+/** Unified result row, whether it came from content search or title search. */
+interface Hit {
+  id: string
+  title: string
+  updated?: number
+  snippet?: string
+}
+
 const query = ref("")
-const results = ref<SessionInfo[]>([])
+const hits = ref<Hit[]>([])
 const loading = ref(false)
+/** Which backend answered the last (or an initial probe) search. */
+const mode = ref<"unknown" | "content" | "fallback">("unknown")
+/** Total conversations known to the search service. */
+const total = ref<number | null>(null)
+/** When true, the list shows every conversation instead of search results. */
+const all = ref(false)
 const inputEl = ref<HTMLInputElement | null>(null)
 const resultsEl = ref<HTMLElement | null>(null)
 /** Index of the keyboard-highlighted result, or -1. */
@@ -22,25 +36,81 @@ let debounce: ReturnType<typeof setTimeout> | null = null
 /** Guards against out-of-order responses from rapid typing. */
 let requestSeq = 0
 
+function titleHits(list: Awaited<ReturnType<typeof app.sessions.query>>): Hit[] {
+  return list.map((session) => ({
+    id: session.id,
+    title: session.title || "Untitled",
+    updated: session.time?.updated ?? session.time?.created,
+  }))
+}
+
 async function run(raw: string) {
   const active = client.value
-  if (!active) return
   const search = raw.trim()
   const seq = ++requestSeq
+  all.value = false
   loading.value = true
   try {
-    const list = await app.sessions.query(active, {
-      directory: directory.value,
-      search: search || undefined,
-      // Empty query shows recent conversations; a query searches the whole set.
-      limit: search ? 100000 : 100,
-    })
-    if (seq !== requestSeq) return
-    results.value = list
-    navIndex.value = list.length ? 0 : -1
+    if (!search) {
+      hits.value = active ? titleHits(await app.sessions.query(active, { directory: directory.value, limit: 100 })) : []
+    } else {
+      let done = false
+      try {
+        const results = await searchContent(search, 30)
+        if (seq !== requestSeq) return
+        hits.value = results.map((hit) => ({
+          id: hit.sessionID,
+          title: hit.title || "Untitled",
+          updated: hit.updated,
+          snippet: hit.snippet,
+        }))
+        mode.value = "content"
+        done = true
+      } catch {
+        // Service offline: fall back to server title search below.
+        mode.value = "fallback"
+      }
+      if (!done) {
+        const list = active
+          ? await app.sessions.query(active, { directory: directory.value, search, limit: 100000 })
+          : []
+        if (seq !== requestSeq) return
+        hits.value = titleHits(list)
+      }
+    }
+    navIndex.value = hits.value.length ? 0 : -1
     void nextTick(() => resultsEl.value?.scrollTo({ top: 0 }))
   } catch {
-    if (seq === requestSeq) results.value = []
+    if (seq === requestSeq) hits.value = []
+  } finally {
+    if (seq === requestSeq) loading.value = false
+  }
+}
+
+/** Load and display every conversation, newest first. */
+async function showAll() {
+  const active = client.value
+  const seq = ++requestSeq
+  all.value = true
+  query.value = ""
+  loading.value = true
+  try {
+    let list: Hit[] = []
+    try {
+      list = (await listAllSessions(5000)).map((hit) => ({
+        id: hit.sessionID,
+        title: hit.title || "Untitled",
+        updated: hit.updated,
+      }))
+      mode.value = "content"
+    } catch {
+      mode.value = "fallback"
+      if (active) list = titleHits(await app.sessions.query(active, { directory: directory.value, limit: 100000 }))
+    }
+    if (seq !== requestSeq) return
+    hits.value = list
+    navIndex.value = list.length ? 0 : -1
+    void nextTick(() => resultsEl.value?.scrollTo({ top: 0 }))
   } finally {
     if (seq === requestSeq) loading.value = false
   }
@@ -53,6 +123,14 @@ watch(query, (value) => {
 
 onMounted(() => {
   inputEl.value?.focus()
+  void searchHealth().then((health) => {
+    if (health) {
+      mode.value = "content"
+      total.value = health.sessions
+    } else {
+      mode.value = "fallback"
+    }
+  })
   void run("")
 })
 
@@ -61,11 +139,24 @@ onBeforeUnmount(() => {
   requestSeq++
 })
 
-const heading = computed(() => (query.value.trim() ? "Results" : "Recent conversations"))
+const heading = computed(() =>
+  all.value ? "All conversations" : query.value.trim() ? "Results" : "Recent conversations",
+)
 
-function open(session: SessionInfo) {
+const modeLabel = computed(() =>
+  mode.value === "content" ? "Content search" : mode.value === "fallback" ? "Fallback · titles" : "Checking…",
+)
+const modeTitle = computed(() =>
+  mode.value === "content"
+    ? "Using the local kilo-search service (FTS5/BM25 over message text)"
+    : mode.value === "fallback"
+      ? "kilo-search is unreachable — matching conversation titles only"
+      : "Checking the local kilo-search service…",
+)
+
+function open(hit: Hit) {
   closeSearch()
-  void app.openSessionByID(session.id)
+  void app.openSessionByID(hit.id)
 }
 
 function scrollNavIntoView() {
@@ -74,7 +165,7 @@ function scrollNavIntoView() {
 }
 
 function move(delta: number) {
-  navIndex.value = Math.min(results.value.length - 1, Math.max(0, navIndex.value + delta))
+  navIndex.value = Math.min(hits.value.length - 1, Math.max(0, navIndex.value + delta))
   void nextTick(scrollNavIntoView)
 }
 
@@ -94,8 +185,8 @@ function onKeydown(event: KeyboardEvent) {
       break
     case "Enter": {
       event.preventDefault()
-      const session = results.value[navIndex.value]
-      if (session) open(session)
+      const hit = hits.value[navIndex.value]
+      if (hit) open(hit)
       break
     }
     default:
@@ -120,6 +211,10 @@ function onKeydown(event: KeyboardEvent) {
         />
         <button v-if="query" class="clear" title="Clear" @click="query = ''"><X :size="15" /></button>
       </div>
+      <div class="search-mode" :class="mode" :title="modeTitle">
+        <span class="mode-dot"></span>
+        {{ modeLabel }}
+      </div>
       <button class="close" title="Close search (Esc)" @click="closeSearch()"><X :size="18" /></button>
     </header>
 
@@ -127,26 +222,34 @@ function onKeydown(event: KeyboardEvent) {
       <div class="results-head">
         <span>{{ heading }}</span>
         <span v-if="loading" class="loading">searching…</span>
-        <span v-else-if="results.length" class="count">{{ results.length }}</span>
+        <span v-else-if="hits.length" class="count">{{ hits.length }}</span>
       </div>
 
       <div ref="resultsEl" class="results">
         <button
-          v-for="(session, index) in results"
-          :key="session.id"
+          v-for="(hit, index) in hits"
+          :key="hit.id"
           class="result"
-          :class="{ active: index === navIndex, current: session.id === app.sessions.currentID.value }"
-          @click="open(session)"
+          :class="{ active: index === navIndex, current: hit.id === app.sessions.currentID.value }"
+          @click="open(hit)"
           @mousemove="navIndex = index"
         >
-          <span class="result-title">{{ session.title || "Untitled" }}</span>
-          <span class="result-time">{{ relativeTime(session.time?.updated ?? session.time?.created) }}</span>
+          <span class="result-line">
+            <span class="result-title">{{ hit.title }}</span>
+            <span class="result-time">{{ relativeTime(hit.updated) }}</span>
+          </span>
+          <span v-if="hit.snippet" class="result-snippet">{{ hit.snippet }}</span>
         </button>
 
-        <p v-if="!loading && !results.length" class="empty">
+        <p v-if="!loading && !hits.length" class="empty">
           {{ query.trim() ? `No conversations match “${query.trim()}”.` : "No conversations yet." }}
         </p>
       </div>
+
+      <footer class="search-foot">
+        <span class="total">{{ total == null ? "—" : `${total.toLocaleString()} conversations` }}</span>
+        <button class="browse" :disabled="loading || all" @click="showAll">List all conversations</button>
+      </footer>
     </div>
   </section>
 </template>
@@ -233,6 +336,37 @@ function onKeydown(event: KeyboardEvent) {
   background: var(--bg-hover);
   color: var(--text);
 }
+.search-mode {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: default;
+}
+.mode-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.search-mode.content .mode-dot {
+  background: #35c06a;
+}
+.search-mode.fallback .mode-dot {
+  background: var(--accent);
+}
+@media (max-width: 620px) {
+  .search-mode {
+    display: none;
+  }
+}
 .search-body {
   flex: 1;
   min-height: 0;
@@ -270,9 +404,9 @@ function onKeydown(event: KeyboardEvent) {
 }
 .result {
   display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 3px;
   width: 100%;
   padding: 9px 12px;
   border: none;
@@ -286,6 +420,11 @@ function onKeydown(event: KeyboardEvent) {
 }
 .result.current {
   box-shadow: inset 0 0 0 2px var(--accent);
+}
+.result-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .result-title {
   flex: 1;
@@ -302,10 +441,43 @@ function onKeydown(event: KeyboardEvent) {
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
+.result-snippet {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .empty {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
   padding: 40px 0;
+}
+.search-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 4px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.browse {
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+}
+.browse:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.browse:disabled {
+  color: var(--text-faint);
+  cursor: default;
 }
 </style>
