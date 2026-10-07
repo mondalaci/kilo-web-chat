@@ -8,7 +8,10 @@ export function relativeTime(timestamp?: number): string {
   if (delta < hour) return `${Math.floor(delta / minute)}m ago`
   if (delta < day) return `${Math.floor(delta / hour)}h ago`
   if (delta < 7 * day) return `${Math.floor(delta / day)}d ago`
-  return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  const date = new Date(timestamp)
+  const options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }
+  if (date.getFullYear() !== new Date().getFullYear()) options.year = "numeric"
+  return date.toLocaleDateString(undefined, options)
 }
 
 export function formatTokens(value?: number): string {
