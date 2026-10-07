@@ -24,6 +24,7 @@ export const shortcutKeys = {
   newChat: "KeyN",
   focusChat: "KeyC",
   sessions: "KeyS",
+  search: "KeyF",
   effort: "KeyE",
   tools: "KeyT",
 } as const

@@ -14,9 +14,11 @@ import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
 import Composer from "./Composer.vue"
 import PromptDock from "./PromptDock.vue"
+import SearchPage from "./SearchPage.vue"
 import { useApp } from "@/stores/app"
 import { requestComposerFocus } from "@/stores/draft"
 import { requestOpen, shortcutKeys, shortcutsVisible } from "@/stores/shortcuts"
+import { searchOpen, openSearch } from "@/stores/search"
 import { formatCost } from "@/utils/format"
 
 const app = useApp()
@@ -216,6 +218,10 @@ function onKeyDown(event: KeyboardEvent) {
       event.preventDefault()
       requestOpen("sessions")
       break
+    case shortcutKeys.search:
+      event.preventDefault()
+      openSearch()
+      break
     case shortcutKeys.effort:
       event.preventDefault()
       requestOpen("effort")
@@ -334,6 +340,8 @@ onBeforeUnmount(() => {
         <Composer />
       </div>
     </main>
+
+    <SearchPage v-if="searchOpen" />
   </div>
 </template>
 
@@ -342,6 +350,7 @@ onBeforeUnmount(() => {
   display: flex;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 .sidebar-host {
   flex: none;

@@ -221,6 +221,7 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
     selectSession,
     switchProject,
     openSessionFromUrl,
+    openSessionByID,
     newChat,
     sendMessage,
     abort,

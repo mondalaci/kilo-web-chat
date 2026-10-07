@@ -14,6 +14,7 @@ import {
   MoreHorizontal,
   Moon,
   Pencil,
+  Search,
   Sun,
   Trash2,
 } from "lucide-vue-next"
@@ -24,6 +25,7 @@ import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
 import { theme, toggleTheme } from "@/theme"
 import { shortcutsVisible, openRequests } from "@/stores/shortcuts"
+import { openSearch } from "@/stores/search"
 
 const app = useApp()
 const { sorted, currentID, loading } = app.sessions
@@ -164,6 +166,10 @@ function onSessionsKeydown(event: KeyboardEvent) {
     <header class="head">
       <span class="logo">K</span>
       <ProjectSelector />
+      <button class="icon search-btn" title="Search conversations (Alt+F)" @click="openSearch()">
+        <Search :size="16" />
+        <kbd v-if="shortcutsVisible" class="kbd floating">F</kbd>
+      </button>
       <button class="icon new-chat-btn" title="New chat (Alt+N)" @click="newChat()">
         <MessageSquarePlus :size="18" />
         <kbd v-if="shortcutsVisible" class="kbd floating">N</kbd>
@@ -280,6 +286,10 @@ function onSessionsKeydown(event: KeyboardEvent) {
   width: auto;
 }
 .new-chat-btn {
+  position: relative;
+  flex: none;
+}
+.search-btn {
   position: relative;
   flex: none;
 }

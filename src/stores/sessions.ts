@@ -2,6 +2,8 @@ import { computed, ref } from "vue"
 import type { ServerClient } from "@/api/client"
 import type { ModelRef, SessionInfo } from "@/api/types"
 
+const DEFAULT_LIMIT = 50
+
 const sessions = ref<SessionInfo[]>([])
 const currentID = ref<string | null>(null)
 const loading = ref(false)
@@ -24,14 +26,29 @@ export function useSessions() {
     [...sessions.value].sort((a, b) => (b.time?.updated ?? b.time?.created ?? 0) - (a.time?.updated ?? a.time?.created ?? 0)),
   )
 
-  async function load(client: ServerClient, directory?: string) {
+  async function load(client: ServerClient, directory?: string, limit = DEFAULT_LIMIT) {
     loading.value = true
     try {
-      const list = await client.listSessions({ directory })
+      // The sidebar only needs the newest page. The full list lives behind the
+      // search page, which filters server-side so it never renders thousands of
+      // rows at once.
+      const list = await client.listSessions({ directory, query: { limit } })
       sessions.value = list.filter((session) => !session.parentID)
     } finally {
       loading.value = false
     }
+  }
+
+  /** Query conversations without mutating the sidebar (used by the search page). */
+  async function query(
+    client: ServerClient,
+    opts: { directory?: string; search?: string; limit?: number } = {},
+  ) {
+    const list = await client.listSessions({
+      directory: opts.directory,
+      query: { limit: opts.limit ?? DEFAULT_LIMIT, search: opts.search },
+    })
+    return list.filter((session) => !session.parentID)
   }
 
   async function create(
@@ -76,5 +93,5 @@ export function useSessions() {
     currentID.value = null
   }
 
-  return { sessions, sorted, current, currentID, loading, load, create, remove, rename, applyEvent, reset, upsert }
+  return { sessions, sorted, current, currentID, loading, load, query, create, remove, rename, applyEvent, reset, upsert }
 }
