@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { X, CircleAlert, Check, Share2 } from "lucide-vue-next"
+import {
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuPortal,
+  DropdownMenuRoot,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "reka-ui"
+import { X, CircleAlert, Check, Copy, ExternalLink, Link2, Link2Off, Share2 } from "lucide-vue-next"
 import type { AssistantMessage } from "@/api/types"
 import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
@@ -17,47 +25,74 @@ const { error, messages } = app.chat
 const { providers, selectedModelInfo } = app.server
 const { newChat } = app
 
-const shareState = ref<"idle" | "shared" | "copied">("idle")
+const shareState = ref<"idle" | "shared" | "copied" | "unshared">("idle")
 
-function flashShare(state: "shared" | "copied") {
+/** Whether the open session currently has a public share link. */
+const isShared = computed(() => Boolean(current.value?.share?.url))
+
+function flashShare(state: "shared" | "copied" | "unshared") {
   shareState.value = state
   setTimeout(() => {
     shareState.value = "idle"
   }, 1500)
 }
 
-/**
- * Share via Kilo's server-side share feature (a public link). Falls back to
- * copying the local per-chat URL if the server cannot create a share.
- */
+const shareTitle = computed(() => {
+  if (shareState.value === "shared") return "Public link created"
+  if (shareState.value === "copied") return "Link copied"
+  if (shareState.value === "unshared") return "Sharing revoked"
+  return isShared.value ? "Shared — manage link" : "Share chat"
+})
+
+/** Create a public share link for the open session (open/copy it on success). */
 async function shareChat() {
   const sessionID = currentID.value
-  if (sessionID) {
-    const shared = await app.shareSession(sessionID)
-    if (shared) {
-      if (navigator.share) {
-        try {
-          await navigator.share({ title: title.value, url: shared })
-          flashShare("shared")
-          return
-        } catch {
-          /* user cancelled */
-        }
+  if (!sessionID) return
+  const shared = await app.shareSession(sessionID)
+  if (shared) {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: title.value, url: shared })
+        flashShare("shared")
+        return
+      } catch {
+        /* user cancelled */
       }
-      window.open(shared, "_blank", "noopener")
-      flashShare("shared")
-      return
     }
+    window.open(shared, "_blank", "noopener")
+    flashShare("shared")
+    return
   }
+  // Fall back to the local per-chat URL when the server cannot create a share.
   const url = new URL(window.location.href)
-  if (sessionID) url.searchParams.set("session", sessionID)
-  else url.searchParams.delete("session")
+  url.searchParams.set("session", sessionID)
   try {
     await navigator.clipboard.writeText(url.toString())
     flashShare("copied")
   } catch {
     /* clipboard unavailable */
   }
+}
+
+const shareURL = computed(() => current.value?.share?.url ?? "")
+
+function openShare() {
+  if (shareURL.value) window.open(shareURL.value, "_blank", "noopener")
+}
+
+async function copyShare() {
+  if (!shareURL.value) return
+  try {
+    await navigator.clipboard.writeText(shareURL.value)
+    flashShare("copied")
+  } catch {
+    /* clipboard unavailable */
+  }
+}
+
+async function unshare() {
+  const sessionID = currentID.value
+  if (sessionID && (await app.unshareSession(sessionID))) flashShare("unshared")
 }
 
 const SIDEBAR_KEY = "kilo-web-chat.sidebar-width"
@@ -247,10 +282,38 @@ onBeforeUnmount(() => {
             {{ contextLimit ? `${contextPercent}%` : "—" }}
           </span>
         </div>
+        <DropdownMenuRoot v-if="isShared">
+          <DropdownMenuTrigger as-child>
+            <button
+              class="share-btn"
+              :class="{ active: isShared || shareState !== 'idle' }"
+              :title="shareTitle"
+              aria-label="Manage share link"
+            >
+              <Check v-if="shareState !== 'idle'" :size="16" />
+              <Link2 v-else :size="16" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuPortal>
+            <DropdownMenuContent class="kilo-menu" :side-offset="4" align="end">
+              <DropdownMenuItem class="kilo-menu-item" @select="openShare">
+                <ExternalLink :size="14" /> Open public link
+              </DropdownMenuItem>
+              <DropdownMenuItem class="kilo-menu-item" @select="copyShare">
+                <Copy :size="14" /> Copy link
+              </DropdownMenuItem>
+              <DropdownMenuSeparator class="kilo-menu-sep" />
+              <DropdownMenuItem class="kilo-menu-item danger" @select="unshare">
+                <Link2Off :size="14" /> Unshare
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenuPortal>
+        </DropdownMenuRoot>
         <button
+          v-else
           class="share-btn"
           :class="{ active: shareState !== 'idle' }"
-          :title="shareState === 'shared' ? 'Shared' : shareState === 'copied' ? 'Link copied' : 'Share chat'"
+          :title="shareTitle"
           aria-label="Share chat"
           @click="shareChat"
         >

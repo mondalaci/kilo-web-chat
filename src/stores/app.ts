@@ -60,6 +60,10 @@ export function useApp() {
     if (!client) return
     sessions.currentID.value = sessionID
     writeSessionParam(sessionID, readSessionParam() === sessionID)
+    // Refresh the session info so `current` carries fields the list omits
+    // (notably `share`), which the header share/unshare toggle depends on.
+    const info = await client.getSession(sessionID, { directory: server.directory.value }).catch(() => null)
+    if (info) sessions.upsert(info)
     await chat.open(client, sessionID, server.directory.value)
   }
 
@@ -163,9 +167,28 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
     if (!client) return null
     try {
       const info = await client.shareSession(sessionID, { directory: server.directory.value })
+      if (info) sessions.upsert(info)
       return info?.share?.url ?? null
     } catch {
       return null
+    }
+  }
+
+  /** Revoke a session's public share link. */
+  async function unshareSession(sessionID: string): Promise<boolean> {
+    const client = connection.client.value
+    if (!client) return false
+    try {
+      const info = await client.unshareSession(sessionID, { directory: server.directory.value })
+      // The response omits `share`; clear it explicitly so the toggle flips back.
+      if (info) sessions.upsert({ ...info, share: undefined })
+      else {
+        const existing = sessions.sessions.value.find((item) => item.id === sessionID)
+        if (existing) sessions.upsert({ ...existing, share: undefined })
+      }
+      return true
+    } catch {
+      return false
     }
   }
 
@@ -204,6 +227,7 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
     removeSession,
     renameSession,
     shareSession,
+    unshareSession,
     replyPermission,
     replyQuestion,
     rejectQuestion,
