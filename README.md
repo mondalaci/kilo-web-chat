@@ -103,6 +103,39 @@ pm2 save
 Set `KILO_SERVER_PASSWORD` in the `kilo-server` app's `env` to require auth;
 leave it unset for a loopback-only, unauthenticated server.
 
+## Configuration
+
+An optional runtime config lives at `public/kilo-web-chat.json` and is fetched
+from the site root (`/kilo-web-chat.json`) on load. It is a plain static file, so
+you can edit it on a running deployment and the change applies on the next
+reload — no rebuild or restart.
+
+```json
+{
+  "defaultAgent": "plan"
+}
+```
+
+`defaultAgent` selects a primary agent on load, overriding the last-used saved
+agent, as long as it names an agent the server exposes. A `?agent=` GET param
+still takes precedence when present; an absent, empty (`null`), or invalid value
+leaves the last-used agent in effect.
+
+## URL parameters
+
+The URL can preselect a chat and prefill the composer:
+
+- `?session=<id>` — open an existing chat.
+- `?agent=<name>` — preselect a primary agent (e.g. `plan`), applied when it exists.
+- `?query=<text>` — prefill the composer with text.
+- `?submit=1` — send the prefilled query immediately, creating a new chat if
+  none is open. A bare `?submit` also counts as enabled. After sending, the
+  `query`/`agent`/`submit` params are removed so a reload does not resend.
+
+```text
+http://localhost:4173/?agent=plan&query=Review%20this%20repo&submit=1
+```
+
 ## How detection works
 
 `src/api/discovery.ts` probes `http://127.0.0.1:<port>/global/health` and

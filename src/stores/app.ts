@@ -2,12 +2,20 @@ import type { Credentials } from "@/api/client"
 import type { InstanceInfo } from "@/api/discovery"
 import { useChat } from "./chat"
 import { useConnection } from "./connection"
-import { requestComposerFocus } from "./draft"
+import { draft, requestComposerFocus } from "./draft"
 import { useLive } from "./live"
+import { loadRuntimeConfig } from "./runtimeConfig"
 import { useServer } from "./server"
 import { useSessions } from "./sessions"
 import { useTools } from "./tools"
-import { readSessionParam, writeSessionParam } from "@/utils/url"
+import {
+  clearPromptParams,
+  readAgentParam,
+  readAutoSubmitParam,
+  readQueryParam,
+  readSessionParam,
+  writeSessionParam,
+} from "@/utils/url"
 
 export function useApp() {
   const connection = useConnection()
@@ -35,6 +43,8 @@ export function useApp() {
     await sessions.load(client, server.directory.value)
     await live.start(client, server.directory.value)
     await openSessionFromUrl()
+    await applyRuntimeDefaults()
+    await applyLinkParams()
     return true
     } catch (error) {
       live.stop()
@@ -83,6 +93,42 @@ export function useApp() {
   async function openSessionFromUrl() {
     const id = readSessionParam()
     if (id) await openSessionByID(id)
+  }
+
+  /**
+   * Apply the runtime config's `defaultAgent` (from `kilo-web-chat.json`) once
+   * the agent list is known. It overrides the last-used saved agent, but a
+   * `?agent=` GET param applied afterwards still takes precedence.
+   */
+  async function applyRuntimeDefaults() {
+    const { defaultAgent } = await loadRuntimeConfig()
+    if (defaultAgent && server.modes.value.some((mode) => mode.name === defaultAgent)) {
+      server.selectedAgent.value = defaultAgent
+    }
+  }
+
+  /**
+   * Apply one-time link params (`?agent=`, `?query=`, `?submit=`) after a
+   * connection is established. The agent is only applied when it exists, and the
+   * query is prefilled into the composer; with `submit` it is sent right away
+   * (creating a new chat if none is open) and the params are cleared so a reload
+   * does not resend it.
+   */
+  async function applyLinkParams() {
+    const agent = readAgentParam()
+    if (agent && server.modes.value.some((mode) => mode.name === agent)) {
+      server.selectedAgent.value = agent
+    }
+
+    const query = readQueryParam()
+    if (query !== null) draft.value = query
+
+    if (!readAutoSubmitParam()) return
+    const text = draft.value.trim()
+    clearPromptParams()
+    if (!text) return
+    await sendMessage(text)
+    draft.value = ""
   }
 
   /** Switch the active project (directory) and reload everything scoped to it. */
