@@ -106,9 +106,16 @@ leave it unset for a loopback-only, unauthenticated server.
 ## Configuration
 
 An optional runtime config lives at `public/kilo-web-chat.json` and is fetched
-from the site root (`/kilo-web-chat.json`) on load. It is a plain static file, so
-you can edit it on a running deployment and the change applies on the next
-reload — no rebuild or restart.
+from the site root (`/kilo-web-chat.json`) on load. The real file is gitignored,
+so a deployment's settings are never committed; copy the committed template to
+create it:
+
+```bash
+cp public/kilo-web-chat.example.json public/kilo-web-chat.json
+```
+
+It is a plain static file, so you can edit it on a running deployment and the
+change applies on the next reload — no rebuild or restart.
 
 ```json
 {

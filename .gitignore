@@ -5,3 +5,4 @@ dist-ssr
 .DS_Store
 .vite
 search-server/data
+public/kilo-web-chat.json
