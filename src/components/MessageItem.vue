@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue"
 import { File as FileIcon, User } from "lucide-vue-next"
-import type { FilePart, MessageWithParts, Part, TextPart } from "@/api/types"
+import type { FilePart, MessageWithParts, Part, TextPart, ToolPart } from "@/api/types"
 import { formatCost, formatTokens } from "@/utils/format"
+import { composedMessage } from "@/utils/compose"
 import { shortcutsVisible } from "@/stores/shortcuts"
 import Markdown from "./Markdown.vue"
+import PartMessageCompose from "./PartMessageCompose.vue"
 import PartReasoning from "./PartReasoning.vue"
 import PartTool from "./PartTool.vue"
 
@@ -44,6 +46,10 @@ const meta = computed(() => {
 function isImage(part: FilePart) {
   return part.mime?.startsWith("image/") && (part.url?.startsWith("data:") || part.url?.startsWith("http"))
 }
+
+function isCompose(part: Part): boolean {
+  return part.type === "tool" && composedMessage(part as ToolPart) !== null
+}
 </script>
 
 <template>
@@ -55,7 +61,10 @@ function isImage(part: FilePart) {
         <p v-else-if="part.type === 'text' && isUser" class="user-text">{{ (part as TextPart).text }}</p>
 
         <PartReasoning v-else-if="part.type === 'reasoning' && !isUser" :part="part" />
-        <PartTool v-else-if="part.type === 'tool' && !isUser" :part="part" />
+        <template v-else-if="part.type === 'tool' && !isUser">
+          <PartMessageCompose v-if="isCompose(part)" :part="part" />
+          <PartTool v-else :part="part" />
+        </template>
 
         <div v-else-if="part.type === 'file'" class="file">
           <img v-if="isImage(part as FilePart)" :src="(part as FilePart).url" :alt="(part as FilePart).filename ?? 'image'" />

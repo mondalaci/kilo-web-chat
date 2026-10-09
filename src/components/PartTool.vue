@@ -2,7 +2,7 @@
 import { computed, ref } from "vue"
 import { Check, ChevronRight, CircleAlert, Terminal } from "lucide-vue-next"
 import type { ToolPart } from "@/api/types"
-import { toolSummary } from "@/utils/format"
+import { prettyJson, toolSummary } from "@/utils/format"
 import Spinner from "./Spinner.vue"
 
 const props = defineProps<{ part: ToolPart }>()
@@ -17,6 +17,7 @@ const output = computed(() => {
   if (state.value.status === "error") return state.value.error
   return ""
 })
+const outputText = computed(() => prettyJson(output.value))
 </script>
 
 <template>
@@ -39,7 +40,7 @@ const output = computed(() => {
       </div>
       <div v-if="output" class="section">
         <div class="label">Output</div>
-        <pre>{{ output }}</pre>
+        <pre>{{ outputText }}</pre>
       </div>
     </div>
   </div>

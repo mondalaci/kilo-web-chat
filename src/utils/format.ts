@@ -52,3 +52,14 @@ export function toolSummary(tool: string, input: Record<string, unknown> | undef
     }
   }
 }
+
+/** Pretty-print a tool output that is a JSON object/array; leave other text as-is. */
+export function prettyJson(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return value
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2)
+  } catch {
+    return value
+  }
+}
