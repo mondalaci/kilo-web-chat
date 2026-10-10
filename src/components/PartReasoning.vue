@@ -1,10 +1,22 @@
 <script setup lang="ts">
-import { computed } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import type { ReasoningPart } from "@/api/types"
 import Spinner from "./Spinner.vue"
 
 const props = defineProps<{ part: ReasoningPart }>()
 const streaming = computed(() => !props.part.time?.end)
+
+const body = ref<HTMLElement | null>(null)
+
+watch(
+  () => props.part.text,
+  async () => {
+    if (!streaming.value) return
+    await nextTick()
+    const el = body.value
+    if (el) el.scrollTop = el.scrollHeight
+  },
+)
 </script>
 
 <template>
@@ -12,7 +24,7 @@ const streaming = computed(() => !props.part.time?.end)
     <div v-if="streaming" class="head" aria-hidden="true">
       <Spinner :size="14" />
     </div>
-    <div class="body">{{ part.text }}</div>
+    <div ref="body" class="body">{{ part.text }}</div>
   </div>
 </template>
 
