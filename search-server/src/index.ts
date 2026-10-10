@@ -269,7 +269,7 @@ const server = Bun.serve({
       return json({ ok: true, parts, sessions: sessions().size, watermark: getWatermark(), kiloDB: KILO_DB })
     }
     if (url.pathname === "/sessions") {
-      const limit = Math.min(5000, Math.max(1, Number(url.searchParams.get("limit") ?? 2000) || 2000))
+      const limit = Math.min(50000, Math.max(1, Number(url.searchParams.get("limit") ?? 2000) || 2000))
       const offset = Math.max(0, Number(url.searchParams.get("offset") ?? 0) || 0)
       const all = [...sessions().entries()].sort((a, b) => b[1].updated - a[1].updated)
       return json({

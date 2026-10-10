@@ -77,18 +77,47 @@ export async function searchHealth(timeout = 1500): Promise<SearchHealth | null>
   }
 }
 
-/** List all conversations (newest first) from the content-search service. */
-export async function listAllSessions(limit = 5000): Promise<ContentHit[]> {
+export interface SessionPage {
+  /** Total conversations the service knows about. */
+  total: number
+  /** The slice of conversations for this page (newest first). */
+  results: ContentHit[]
+}
+
+/** One page of conversations (newest first) from the content-search service. */
+export async function listSessionsPage(offset = 0, limit = 2000, timeout = 5000): Promise<SessionPage> {
   const url = new URL("/sessions", searchURL())
   url.searchParams.set("limit", String(limit))
+  url.searchParams.set("offset", String(offset))
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 5000)
+  const timer = setTimeout(() => controller.abort(), timeout)
   try {
     const res = await fetch(url, { signal: controller.signal })
     if (!res.ok) throw new Error(`list failed: ${res.status}`)
-    const data = (await res.json()) as { results?: ContentHit[] }
-    return data.results ?? []
+    const data = (await res.json()) as { total?: number; results?: ContentHit[] }
+    const results = data.results ?? []
+    return { total: data.total ?? results.length, results }
   } finally {
     clearTimeout(timer)
   }
+}
+
+/**
+ * List every conversation (newest first) by paging through the service, so the
+ * result is not truncated by a single request's page cap.
+ */
+export async function listAllSessions(pageSize = 2000): Promise<SessionPage> {
+  const first = await listSessionsPage(0, pageSize)
+  const results = [...first.results]
+  while (results.length < first.total && first.results.length > 0) {
+    let page: SessionPage
+    try {
+      page = await listSessionsPage(results.length, pageSize)
+    } catch {
+      break // Service hiccup mid-way: keep what we already have.
+    }
+    if (page.results.length === 0) break
+    results.push(...page.results)
+  }
+  return { total: first.total, results }
 }

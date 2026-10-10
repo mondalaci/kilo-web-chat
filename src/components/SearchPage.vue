@@ -97,11 +97,13 @@ async function showAll() {
   try {
     let list: Hit[] = []
     try {
-      list = (await listAllSessions(5000)).map((hit) => ({
+      const page = await listAllSessions()
+      list = page.results.map((hit) => ({
         id: hit.sessionID,
         title: hit.title || "Untitled",
         updated: hit.updated,
       }))
+      total.value = page.total
       mode.value = "content"
     } catch {
       mode.value = "fallback"
