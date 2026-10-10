@@ -2,7 +2,7 @@
 import { computed } from "vue"
 import { File as FileIcon, User } from "lucide-vue-next"
 import type { FilePart, MessageWithParts, Part, TextPart, ToolPart } from "@/api/types"
-import { formatCost, formatTokens } from "@/utils/format"
+import { formatCost, formatDateTime, formatTokens } from "@/utils/format"
 import { composedMessage } from "@/utils/compose"
 import { shortcutsVisible } from "@/stores/shortcuts"
 import Markdown from "./Markdown.vue"
@@ -40,6 +40,7 @@ const meta = computed(() => {
     model: info.modelID,
     tokens: total,
     cost: info.cost ?? 0,
+    created: info.time?.created,
   }
 })
 
@@ -82,6 +83,7 @@ function isCompose(part: Part): boolean {
     <div v-if="isUser" class="avatar user-avatar" aria-hidden="true"><User :size="15" /></div>
     <div v-if="meta && !streaming && shortcutsVisible" class="meta" :title="meta.model">
       <div class="meta-inner">
+        <div v-if="meta.created" class="meta-row meta-datetime">{{ formatDateTime(meta.created) }}</div>
         <div class="meta-model">{{ meta.model }}</div>
         <div v-if="meta.tokens" class="meta-row">{{ formatTokens(meta.tokens) }} tokens</div>
         <div v-if="meta.cost" class="meta-row">{{ formatCost(meta.cost) }}</div>
@@ -212,6 +214,9 @@ function isCompose(part: Part): boolean {
 }
 .meta-row {
   white-space: nowrap;
+}
+.meta-datetime {
+  font-variant-numeric: tabular-nums;
 }
 /* On narrower screens there is no side gutter, so overlay the info on hover. */
 @media (max-width: 1360px) {

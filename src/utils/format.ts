@@ -1,3 +1,48 @@
+import type { TimeRange } from "@/api/types"
+
+/** A sortable local calendar-day key (year*10000 + month*100 + day). */
+function calendarDay(timestamp: number): number {
+  const date = new Date(timestamp)
+  return date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate()
+}
+
+/** A single timestamp as a short date, with the clock time when `withTime`. */
+function formatStamp(timestamp: number, withTime: boolean): string {
+  const options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }
+  if (new Date(timestamp).getFullYear() !== new Date().getFullYear()) options.year = "numeric"
+  if (withTime) {
+    options.hour = "numeric"
+    options.minute = "2-digit"
+  }
+  return new Date(timestamp).toLocaleString(undefined, options)
+}
+
+/**
+ * Format a conversation's time span. A single date is shown unless the span
+ * covers more than one calendar day, in which case the date range is shown.
+ * When `withTime` is set the clock time is included.
+ */
+export function formatConversationDate(range?: TimeRange, withTime = false): string {
+  const start = range?.created
+  if (!start) return ""
+  const end = range?.updated ?? start
+  if (calendarDay(start) !== calendarDay(end)) return `${formatStamp(start, withTime)} – ${formatStamp(end, withTime)}`
+  return formatStamp(end, withTime)
+}
+
+/** The full date-time span of a conversation, always including clock times. */
+export function formatConversationDateTime(range?: TimeRange): string {
+  const start = range?.created
+  if (!start) return ""
+  const end = range?.updated ?? start
+  return end !== start ? `${formatStamp(start, true)} – ${formatStamp(end, true)}` : formatStamp(start, true)
+}
+
+/** A single timestamp as a short date and clock time. */
+export function formatDateTime(timestamp?: number): string {
+  return timestamp ? formatStamp(timestamp, true) : ""
+}
+
 export function relativeTime(timestamp?: number): string {
   if (!timestamp) return ""
   const delta = Date.now() - timestamp

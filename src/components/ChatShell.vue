@@ -19,7 +19,7 @@ import { useApp } from "@/stores/app"
 import { requestComposerFocus } from "@/stores/draft"
 import { requestOpen, shortcutKeys, shortcutsVisible } from "@/stores/shortcuts"
 import { searchOpen, openSearch } from "@/stores/search"
-import { formatCost } from "@/utils/format"
+import { formatConversationDate, formatConversationDateTime, formatCost } from "@/utils/format"
 
 const app = useApp()
 const { current, currentID } = app.sessions
@@ -183,6 +183,9 @@ const contextLimit = computed(() => {
 const contextPercent = computed(() => (contextLimit.value ? Math.round((contextTokens.value / contextLimit.value) * 100) : 0))
 
 const costTitle = computed(() => `Session cost: ${formatCost(sessionCost.value)}`)
+// The conversation date, showing a range when it spans more than one day.
+const conversationDate = computed(() => formatConversationDate(current.value?.time))
+const conversationDateTitle = computed(() => formatConversationDateTime(current.value?.time))
 const contextTitle = computed(() =>
   contextLimit.value
     ? `${contextTokens.value.toLocaleString()} tokens (${contextPercent.value}% of context)`
@@ -282,6 +285,8 @@ onBeforeUnmount(() => {
       <header class="topbar">
         <h1 class="title">{{ title }}</h1>
         <div v-if="current" class="stats">
+          <span v-if="conversationDate" class="stat" :title="conversationDateTitle">{{ conversationDate }}</span>
+          <span v-if="conversationDate" class="stat-divider">·</span>
           <span class="stat" :title="costTitle">{{ formatCost(sessionCost) }}</span>
           <span class="stat-divider">·</span>
           <span class="stat" :class="{ warn: contextPercent >= 80 }" :title="contextTitle">
@@ -430,6 +435,7 @@ onBeforeUnmount(() => {
 }
 .stat {
   cursor: default;
+  white-space: nowrap;
 }
 .stat:hover {
   color: var(--text-muted);
