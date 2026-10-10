@@ -5,7 +5,7 @@ import type { ReasoningPart } from "@/api/types"
 import Spinner from "./Spinner.vue"
 
 const props = defineProps<{ part: ReasoningPart }>()
-const open = ref(false)
+const open = ref(true)
 const streaming = computed(() => !props.part.time?.end)
 </script>
 
@@ -53,5 +53,7 @@ const streaming = computed(() => !props.part.time?.end)
   font-size: 13px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  max-height: 100px;
+  overflow-y: auto;
 }
 </style>

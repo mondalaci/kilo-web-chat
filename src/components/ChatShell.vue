@@ -10,7 +10,6 @@ import {
 } from "reka-ui"
 import { X, CircleAlert, Check, Copy, ExternalLink, Link2, Link2Off, Share2 } from "lucide-vue-next"
 import type { AssistantMessage } from "@/api/types"
-import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
 import Composer from "./Composer.vue"
 import PromptDock from "./PromptDock.vue"
@@ -95,44 +94,6 @@ async function copyShare() {
 async function unshare() {
   const sessionID = currentID.value
   if (sessionID && (await app.unshareSession(sessionID))) flashShare("unshared")
-}
-
-const SIDEBAR_KEY = "kilo-web-chat.sidebar-width"
-const SIDEBAR_MIN = 180
-const SIDEBAR_MAX = 520
-const DEFAULT_SIDEBAR = 264
-
-function loadSidebarWidth() {
-  const value = Number(localStorage.getItem(SIDEBAR_KEY))
-  return Number.isFinite(value) && value >= SIDEBAR_MIN && value <= SIDEBAR_MAX ? value : DEFAULT_SIDEBAR
-}
-
-const sidebarWidth = ref(loadSidebarWidth())
-
-function applySidebarWidth() {
-  document.documentElement.style.setProperty("--sidebar-width", `${sidebarWidth.value}px`)
-}
-
-/** Split.js-style drag handle between the sidebar and the conversation. */
-function startResize(event: PointerEvent) {
-  event.preventDefault()
-  const handle = event.currentTarget as HTMLElement
-  handle.setPointerCapture(event.pointerId)
-  const onMove = (move: PointerEvent) => {
-    sidebarWidth.value = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, move.clientX))
-    applySidebarWidth()
-  }
-  const onUp = () => {
-    handle.removeEventListener("pointermove", onMove)
-    handle.removeEventListener("pointerup", onUp)
-    try {
-      localStorage.setItem(SIDEBAR_KEY, String(sidebarWidth.value))
-    } catch {
-      /* ignore */
-    }
-  }
-  handle.addEventListener("pointermove", onMove)
-  handle.addEventListener("pointerup", onUp)
 }
 
 const title = computed(() => current.value?.title || "New chat")
@@ -256,7 +217,6 @@ function onPopState() {
 }
 
 onMounted(() => {
-  applySidebarWidth()
   window.addEventListener("keydown", onKeyDown)
   window.addEventListener("keyup", onKeyUp)
   window.addEventListener("blur", onBlur)
@@ -273,11 +233,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="shell">
-    <div class="sidebar-host">
-      <Sidebar />
-    </div>
-    <div class="resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" @pointerdown="startResize"></div>
-
     <main class="main">
       <header class="topbar">
         <h1 class="title">{{ title }}</h1>
@@ -351,33 +306,6 @@ onBeforeUnmount(() => {
   height: 100%;
   overflow: hidden;
   position: relative;
-}
-.sidebar-host {
-  flex: none;
-  height: 100%;
-}
-@media (max-width: 720px) {
-  .sidebar-host {
-    display: none;
-  }
-}
-.resizer {
-  flex: none;
-  width: 5px;
-  cursor: col-resize;
-  touch-action: none;
-  background: transparent;
-  transition: background 0.12s;
-}
-.resizer:hover,
-.resizer:active {
-  background: var(--accent);
-  opacity: 0.5;
-}
-@media (max-width: 720px) {
-  .resizer {
-    display: none;
-  }
 }
 .main {
   flex: 1;
