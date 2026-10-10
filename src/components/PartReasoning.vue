@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
-import { Brain, ChevronRight } from "lucide-vue-next"
+import { ChevronRight } from "lucide-vue-next"
 import type { ReasoningPart } from "@/api/types"
 import Spinner from "./Spinner.vue"
 
@@ -11,11 +11,15 @@ const streaming = computed(() => !props.part.time?.end)
 
 <template>
   <div class="reasoning">
-    <button class="head" @click="open = !open">
-      <ChevronRight :size="14" class="chev" :class="{ open }" />
-      <Brain :size="14" />
-      <span>Reasoning</span>
-      <Spinner v-if="streaming" :size="12" />
+    <button
+      class="head"
+      :aria-expanded="open"
+      :title="open ? 'Collapse reasoning' : 'Expand reasoning'"
+      aria-label="Reasoning"
+      @click="open = !open"
+    >
+      <Spinner v-if="streaming" :size="14" />
+      <ChevronRight v-else :size="16" class="chev" :class="{ open }" />
     </button>
     <div v-show="open" class="body">{{ part.text }}</div>
   </div>
@@ -23,23 +27,32 @@ const streaming = computed(() => !props.part.time?.end)
 
 <style scoped>
 .reasoning {
+  position: relative;
   margin: 6px 0;
   border-left: 2px solid var(--border);
   padding-left: 10px;
 }
+/* Bare, subtle toggle in the right gutter, mirroring the assistant avatar on the left. */
 .head {
+  position: absolute;
+  top: 0;
+  left: calc(100% + 10px);
+  z-index: 1;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  background: transparent;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   border: none;
-  padding: 2px 0;
-  color: var(--text-muted);
-  font-size: 12.5px;
-  font-weight: 500;
+  background: transparent;
+  color: var(--text-faint);
+  opacity: 0.6;
+  transition: color 0.12s, opacity 0.12s;
 }
 .head:hover {
   color: var(--text);
+  opacity: 1;
 }
 .chev {
   transition: transform 0.15s;
@@ -55,5 +68,12 @@ const streaming = computed(() => !props.part.time?.end)
   overflow-wrap: anywhere;
   max-height: 100px;
   overflow-y: auto;
+}
+/* No right gutter on narrow viewports: fall back to overlaying the content. */
+@media (max-width: 880px) {
+  .head {
+    left: auto;
+    right: 0;
+  }
 }
 </style>
