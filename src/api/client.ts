@@ -45,6 +45,38 @@ export interface RequestOptions {
   body?: unknown
   signal?: AbortSignal
   headers?: Record<string, string>
+  /** Override the default request deadline in ms; `0` disables it. */
+  timeoutMs?: number
+}
+
+/**
+ * A request that never settles keeps its socket open forever. A handful of
+ * those exhaust the browser's per-origin connection pool, after which every
+ * later request (health probes included) queues indefinitely and the app looks
+ * dead. Giving each request a deadline keeps a stalled response from wedging
+ * the whole origin.
+ */
+const DEFAULT_TIMEOUT_MS = 30_000
+
+/** Combine a caller signal with a timeout into one abortable signal. */
+function withDeadline(signal: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController()
+  const timer =
+    timeoutMs > 0
+      ? setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs} ms`)), timeoutMs)
+      : undefined
+  const forward = () => controller.abort(signal?.reason)
+  if (signal) {
+    if (signal.aborted) forward()
+    else signal.addEventListener("abort", forward, { once: true })
+  }
+  return {
+    signal: controller.signal,
+    cleanup() {
+      if (timer) clearTimeout(timer)
+      signal?.removeEventListener("abort", forward)
+    },
+  }
 }
 
 /**
@@ -83,20 +115,25 @@ export class ServerClient {
   }
 
   async request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-    const res = await fetch(this.url(path, opts), {
-      method: opts.method ?? "GET",
-      headers: this.headers(opts.headers, opts.body),
-      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-      signal: opts.signal,
-    })
-    if (!res.ok) {
-      const body = await res.text().catch(() => "")
-      throw new ServerError(res.status, res.statusText, body)
+    const { signal, cleanup } = withDeadline(opts.signal, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)
+    try {
+      const res = await fetch(this.url(path, opts), {
+        method: opts.method ?? "GET",
+        headers: this.headers(opts.headers, opts.body),
+        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+        signal,
+      })
+      if (!res.ok) {
+        const body = await res.text().catch(() => "")
+        throw new ServerError(res.status, res.statusText, body)
+      }
+      if (res.status === 204) return undefined as T
+      const text = await res.text()
+      if (!text) return undefined as T
+      return JSON.parse(text) as T
+    } finally {
+      cleanup()
     }
-    if (res.status === 204) return undefined as T
-    const text = await res.text()
-    if (!text) return undefined as T
-    return JSON.parse(text) as T
   }
 
   /* ------------------------------ health/config ----------------------------- */
