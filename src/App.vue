@@ -4,8 +4,10 @@ import ChatShell from "./components/ChatShell.vue"
 import InstancePicker from "./components/InstancePicker.vue"
 import Spinner from "./components/Spinner.vue"
 import { useApp } from "@/stores/app"
+import { useFaviconProgress } from "@/stores/favicon"
 
 const app = useApp()
+useFaviconProgress()
 const connected = app.connection.connected
 
 // Keep the picker hidden while we try to restore the last server, so it does
