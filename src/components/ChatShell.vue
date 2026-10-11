@@ -14,7 +14,6 @@ import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
 import Composer from "./Composer.vue"
 import PromptDock from "./PromptDock.vue"
-import SearchPage from "./SearchPage.vue"
 import { useApp } from "@/stores/app"
 import { requestComposerFocus } from "@/stores/draft"
 import { requestOpen, shortcutKeys, shortcutsVisible } from "@/stores/shortcuts"
@@ -275,7 +274,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="shell">
+  <div class="shell" :class="{ searching: searchOpen }">
     <div class="sidebar-host">
       <Sidebar />
     </div>
@@ -346,7 +345,6 @@ onBeforeUnmount(() => {
       </div>
     </main>
 
-    <SearchPage v-if="searchOpen" />
   </div>
 </template>
 
@@ -364,6 +362,17 @@ onBeforeUnmount(() => {
 @media (max-width: 720px) {
   .sidebar-host {
     display: none;
+  }
+  /* Search has no full-page view any more: overlay the sidebar on small
+     screens so results stay reachable. */
+  .shell.searching .sidebar-host {
+    display: flex;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+  }
+  .shell.searching .sidebar-host :deep(.sidebar) {
+    width: 100%;
   }
 }
 .resizer {

@@ -29,6 +29,7 @@ const total = ref<number | null>(null)
 const all = ref(false)
 const inputEl = ref<HTMLInputElement | null>(null)
 const resultsEl = ref<HTMLElement | null>(null)
+const rootEl = ref<HTMLElement | null>(null)
 /** Index of the keyboard-highlighted result, or -1. */
 const navIndex = ref(-1)
 
@@ -125,6 +126,7 @@ watch(query, (value) => {
 
 onMounted(() => {
   inputEl.value?.focus()
+  window.addEventListener("keydown", onWindowKeydown)
   void searchHealth().then((health) => {
     if (health) {
       mode.value = "content"
@@ -137,6 +139,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener("keydown", onWindowKeydown)
   if (debounce) clearTimeout(debounce)
   requestSeq++
 })
@@ -156,9 +159,13 @@ const modeTitle = computed(() =>
       : "Checking the local kilo-search service…",
 )
 
-function open(hit: Hit) {
-  closeSearch()
-  void app.openSessionByID(hit.id)
+async function open(hit: Hit) {
+  // Keep the results open: the session loads in the main pane behind the
+  // sidebar, and search closes only when the user explicitly closes it.
+  await app.openSessionByID(hit.id)
+  // Restore focus to the field so arrow-key navigation keeps working.
+  await nextTick()
+  inputEl.value?.focus()
 }
 
 function scrollNavIntoView() {
@@ -188,20 +195,33 @@ function onKeydown(event: KeyboardEvent) {
     case "Enter": {
       event.preventDefault()
       const hit = hits.value[navIndex.value]
-      if (hit) open(hit)
+      if (hit) void open(hit)
       break
     }
     default:
       break
   }
 }
+
+/**
+ * Keyboard navigation is bound at the window level (guarded) so arrow keys keep
+ * working even after focus leaves the search subtree, e.g. after clicking a
+ * result. Keys are ignored while another input/editable element holds focus.
+ */
+function onWindowKeydown(event: KeyboardEvent) {
+  const active = document.activeElement
+  const inside = active != null && rootEl.value?.contains(active)
+  const onBody = active == null || active === document.body
+  if (!inside && !onBody) return
+  onKeydown(event)
+}
 </script>
 
 <template>
-  <section class="search-page" role="dialog" aria-label="Search conversations" @keydown="onKeydown">
+  <div ref="rootEl" class="sidebar-search" role="search" aria-label="Search conversations">
     <header class="search-head">
-      <div class="search-field">
-        <Search :size="16" class="search-icon" />
+      <div class="search-field" :title="modeTitle">
+        <Search :size="15" class="search-icon" />
         <input
           ref="inputEl"
           v-model="query"
@@ -211,68 +231,59 @@ function onKeydown(event: KeyboardEvent) {
           spellcheck="false"
           autocomplete="off"
         />
-        <button v-if="query" class="clear" title="Clear" @click="query = ''"><X :size="15" /></button>
+        <button v-if="query" class="clear" title="Clear" @click="query = ''"><X :size="14" /></button>
       </div>
-      <div class="search-mode" :class="mode" :title="modeTitle">
-        <span class="mode-dot"></span>
-        {{ modeLabel }}
-      </div>
-      <button class="close" title="Close search (Esc)" @click="closeSearch()"><X :size="18" /></button>
+      <button class="close" title="Close search (Esc)" @click="closeSearch()"><X :size="16" /></button>
     </header>
 
-    <div class="search-body">
-      <div class="results-head">
-        <span>{{ heading }}</span>
-        <span v-if="loading" class="loading">searching…</span>
-        <span v-else-if="hits.length" class="count">{{ hits.length }}</span>
-      </div>
-
-      <div ref="resultsEl" class="results">
-        <button
-          v-for="(hit, index) in hits"
-          :key="hit.id"
-          class="result"
-          :class="{ active: index === navIndex, current: hit.id === app.sessions.currentID.value }"
-          @click="open(hit)"
-          @mousemove="navIndex = index"
-        >
-          <span class="result-line">
-            <span class="result-title">{{ hit.title }}</span>
-            <span class="result-time">{{ relativeTime(hit.updated) }}</span>
-          </span>
-          <span v-if="hit.snippet" class="result-snippet">{{ hit.snippet }}</span>
-        </button>
-
-        <p v-if="!loading && !hits.length" class="empty">
-          {{ query.trim() ? `No conversations match “${query.trim()}”.` : "No conversations yet." }}
-        </p>
-      </div>
-
-      <footer class="search-foot">
-        <span class="total">{{ total == null ? "—" : `${total.toLocaleString()} conversations` }}</span>
-        <button class="browse" :disabled="loading || all" @click="showAll">List all conversations</button>
-      </footer>
+    <div class="results-head">
+      <span class="mode-dot" :class="mode" :title="modeTitle"></span>
+      <span class="heading">{{ heading }}</span>
+      <span v-if="loading" class="loading">searching…</span>
+      <span v-else-if="hits.length" class="count">{{ hits.length }}</span>
     </div>
-  </section>
+
+    <div ref="resultsEl" class="results">
+      <button
+        v-for="(hit, index) in hits"
+        :key="hit.id"
+        class="result"
+        :class="{ active: index === navIndex, current: hit.id === app.sessions.currentID.value }"
+        @click="open(hit)"
+        @mouseenter="navIndex = index"
+      >
+        <span class="result-line">
+          <span class="result-title">{{ hit.title }}</span>
+          <span class="result-time">{{ relativeTime(hit.updated) }}</span>
+        </span>
+        <span v-if="hit.snippet" class="result-snippet">{{ hit.snippet }}</span>
+      </button>
+
+      <p v-if="!loading && !hits.length" class="empty">
+        {{ query.trim() ? `No conversations match “${query.trim()}”.` : "No conversations yet." }}
+      </p>
+    </div>
+
+    <footer class="search-foot">
+      <span class="total">{{ total == null ? "—" : `${total.toLocaleString()} conversations` }}</span>
+      <button class="browse" :disabled="loading || all" @click="showAll">List all</button>
+    </footer>
+  </div>
 </template>
 
 <style scoped>
-.search-page {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
+.sidebar-search {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--bg);
 }
 .search-head {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: var(--header-height);
-  padding: 0 18px;
-  border-bottom: 1px solid var(--border);
+  gap: 4px;
+  padding: 10px 10px 6px;
 }
 .search-field {
   position: relative;
@@ -280,14 +291,12 @@ function onKeydown(event: KeyboardEvent) {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: var(--content-width);
-  margin: 0 auto;
-  padding: 0 10px;
-  height: 36px;
+  gap: 7px;
+  padding: 0 8px;
+  height: 32px;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-elevated);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
 }
 .search-field:focus-within {
   border-color: var(--accent);
@@ -303,7 +312,7 @@ function onKeydown(event: KeyboardEvent) {
   outline: none;
   background: transparent;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
 }
 .search-input::-webkit-search-cancel-button {
   display: none;
@@ -338,54 +347,13 @@ function onKeydown(event: KeyboardEvent) {
   background: var(--bg-hover);
   color: var(--text);
 }
-.search-mode {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg-elevated);
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-  cursor: default;
-}
-.mode-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-faint);
-}
-.search-mode.content .mode-dot {
-  background: #35c06a;
-}
-.search-mode.fallback .mode-dot {
-  background: var(--accent);
-}
-@media (max-width: 620px) {
-  .search-mode {
-    display: none;
-  }
-}
-.search-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-width: var(--content-width);
-  margin: 0 auto;
-  padding: 12px 18px 0;
-}
 .results-head {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 4px 8px;
-  font-size: 11.5px;
+  gap: 7px;
+  padding: 2px 12px 6px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--text-faint);
@@ -395,6 +363,26 @@ function onKeydown(event: KeyboardEvent) {
   text-transform: none;
   letter-spacing: 0;
 }
+.results-head .heading {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mode-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+.mode-dot.content {
+  background: #35c06a;
+}
+.mode-dot.fallback {
+  background: var(--accent);
+}
 .results {
   flex: 1;
   min-height: 0;
@@ -402,36 +390,41 @@ function onKeydown(event: KeyboardEvent) {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-bottom: 18px;
+  padding: 0 8px 12px;
 }
 .result {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 3px;
+  gap: 2px;
   width: 100%;
-  padding: 9px 12px;
+  padding: 7px 9px;
   border: none;
   background: transparent;
   border-radius: var(--radius-sm);
   text-align: left;
 }
-.result:hover,
-.result.active {
+.result:hover {
   background: var(--bg-hover);
 }
-.result.current {
-  box-shadow: inset 0 0 0 2px var(--accent);
+.result.active,
+.result.active:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+/* The open session is marked on its title, not with an outline. */
+.result.current .result-title {
+  color: var(--accent);
+  font-weight: 600;
 }
 .result-line {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 .result-title {
   flex: 1;
   min-width: 0;
-  font-size: 13.5px;
+  font-size: 13px;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -439,12 +432,12 @@ function onKeydown(event: KeyboardEvent) {
 }
 .result-time {
   flex: none;
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
 .result-snippet {
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -453,25 +446,25 @@ function onKeydown(event: KeyboardEvent) {
 .empty {
   text-align: center;
   color: var(--text-muted);
-  font-size: 13px;
-  padding: 40px 0;
+  font-size: 12.5px;
+  padding: 28px 6px;
 }
 .search-foot {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 10px 4px;
+  gap: 8px;
+  padding: 8px 12px;
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 11.5px;
   color: var(--text-faint);
 }
 .browse {
   border: none;
   background: transparent;
   color: var(--accent);
-  font-size: 12px;
+  font-size: 11.5px;
   padding: 3px 6px;
   border-radius: var(--radius-sm);
 }

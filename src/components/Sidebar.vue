@@ -20,12 +20,13 @@ import {
 } from "lucide-vue-next"
 import Spinner from "./Spinner.vue"
 import ProjectSelector from "./ProjectSelector.vue"
+import SidebarSearch from "./SidebarSearch.vue"
 import ToolsRow from "./ToolsRow.vue"
 import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
 import { theme, toggleTheme } from "@/theme"
 import { shortcutsVisible, openRequests } from "@/stores/shortcuts"
-import { openSearch } from "@/stores/search"
+import { openSearch, searchOpen } from "@/stores/search"
 
 const app = useApp()
 const { sorted, currentID, loading } = app.sessions
@@ -163,6 +164,8 @@ function onSessionsKeydown(event: KeyboardEvent) {
 
 <template>
   <aside class="sidebar">
+    <SidebarSearch v-if="searchOpen" />
+    <template v-else>
     <header class="head">
       <span class="logo">K</span>
       <ProjectSelector />
@@ -241,6 +244,7 @@ function onSessionsKeydown(event: KeyboardEvent) {
         <button class="icon" title="Disconnect" @click="disconnect()"><LogOut :size="16" /></button>
       </div>
     </footer>
+    </template>
   </aside>
 </template>
 
