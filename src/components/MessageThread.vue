@@ -4,7 +4,7 @@ import MessageItem from "./MessageItem.vue"
 import Spinner from "./Spinner.vue"
 import { useChat } from "@/stores/chat"
 
-const { messages, loading, currentSessionID } = useChat()
+const { messages, loading, currentSessionID, scrollToBottomRequest } = useChat()
 
 const viewport = ref<HTMLElement | null>(null)
 const pinned = ref(true)
@@ -73,6 +73,11 @@ watch(messages, () => {
 
 watch(loading, (value) => {
   if (!value) void scrollToBottom()
+})
+
+watch(scrollToBottomRequest, () => {
+  pinned.value = true
+  void scrollToBottom()
 })
 
 watch(currentSessionID, () => {

@@ -29,6 +29,9 @@ const questions = ref<QuestionRequest[]>([])
 const todos = ref<Todo[]>([])
 const currentSessionID = ref<string | null>(null)
 
+/** Bumped on every user send so the view forces a re-pin and scroll to bottom. */
+const scrollToBottomRequest = ref(0)
+
 /** Parts that arrived before their parent message (rare, but handled). */
 const orphanParts = new Map<string, Part[]>()
 
@@ -150,6 +153,7 @@ export function useChat() {
   async function send(client: ServerClient, sessionID: string, input: PromptInput, directory?: string) {
     sending.value = true
     error.value = null
+    scrollToBottomRequest.value++
     try {
       await client.prompt(
         sessionID,
@@ -320,6 +324,7 @@ export function useChat() {
     pendingPermissions,
     pendingQuestions,
     currentSessionID,
+    scrollToBottomRequest,
     open,
     send,
     abort,
