@@ -27,4 +27,25 @@ export const shortcutKeys = {
   search: "KeyF",
   effort: "KeyE",
   tools: "KeyT",
+  pronounce: "KeyV",
 } as const
+
+/**
+ * Pronunciation widgets are independent Vue apps (one per code block), so the
+ * shortcut cannot be dispatched through a single component the way the
+ * `openRequests` counters are. Each mounted widget registers its play/stop
+ * toggle here; the newest registration wins, so Alt+V drives the most recent
+ * widget on screen.
+ */
+let activePronunciation: (() => void) | null = null
+
+export function registerPronunciation(handler: () => void): () => void {
+  activePronunciation = handler
+  return () => {
+    if (activePronunciation === handler) activePronunciation = null
+  }
+}
+
+export function togglePronunciation() {
+  activePronunciation?.()
+}

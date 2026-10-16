@@ -16,7 +16,7 @@ import Composer from "./Composer.vue"
 import PromptDock from "./PromptDock.vue"
 import { useApp } from "@/stores/app"
 import { requestComposerFocus } from "@/stores/draft"
-import { requestOpen, shortcutKeys, shortcutsVisible } from "@/stores/shortcuts"
+import { requestOpen, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
 import { searchOpen, openSearch } from "@/stores/search"
 import { formatConversationDate, formatConversationDateTime, formatCost } from "@/utils/format"
 
@@ -231,6 +231,10 @@ function onKeyDown(event: KeyboardEvent) {
     case shortcutKeys.tools:
       event.preventDefault()
       requestOpen("tools")
+      break
+    case shortcutKeys.pronounce:
+      event.preventDefault()
+      togglePronunciation()
       break
     case shortcutKeys.newChat:
       event.preventDefault()

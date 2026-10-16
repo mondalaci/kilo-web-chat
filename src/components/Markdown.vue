@@ -4,6 +4,7 @@ import { marked } from "marked"
 import DOMPurify from "dompurify"
 import hljs from "highlight.js/lib/common"
 import PronunciationBlock from "./PronunciationBlock.vue"
+import { parsePronunciation } from "@/utils/pronunciation"
 
 const props = defineProps<{ text: string; streaming?: boolean }>()
 const root = ref<HTMLElement | null>(null)
@@ -129,6 +130,13 @@ function isPronunciation(code: Element) {
 // unmounted and rebuilt below.
 let pronunciationApps: Array<{ app: VueApp; host: HTMLElement }> = []
 
+// Set when a streaming response finishes; the next widget built from a *complete*
+// (parseable) block auto-plays once. A response often finishes while its fenced
+// block is still truncated, so this stays armed until a block actually parses.
+// Ordinary re-renders (old messages, session loads) leave it false so history is
+// never replayed.
+let autoplayPending = false
+
 function prunePronunciation() {
   pronunciationApps = pronunciationApps.filter(({ app, host }) => {
     if (host.isConnected) return true
@@ -141,17 +149,24 @@ function renderPronunciation() {
   prunePronunciation()
   // While a message streams the block may be incomplete; show the code and wait.
   if (props.streaming || !root.value) return
+  const autoplay = autoplayPending
+  let autoplayed = false
   for (const node of root.value.querySelectorAll<HTMLElement>(PRONUNCIATION_SELECTOR)) {
     const pre = node.closest("pre")
     if (!pre) continue
     const source = node.textContent ?? ""
+    const playable = parsePronunciation(source).length > 0
     const host = document.createElement("div")
     host.className = "pronunciation-host"
-    const app = createApp(PronunciationBlock, { text: source })
+    const app = createApp(PronunciationBlock, { text: source, autoplay: autoplay && playable })
     app.mount(host)
     pre.replaceWith(host)
     pronunciationApps.push({ app, host })
+    if (autoplay && playable) autoplayed = true
   }
+  // Only disarm once a complete block has actually been handed the flag, so a
+  // truncated block at completion does not consume it.
+  if (autoplayed) autoplayPending = false
 }
 
 function renderAll() {
@@ -166,11 +181,13 @@ onBeforeUnmount(() => {
   for (const { app } of pronunciationApps) app.unmount()
   pronunciationApps = []
 })
-watch(html, () => requestAnimationFrame(renderAll))
-watch(
-  () => props.streaming,
-  () => requestAnimationFrame(renderAll),
-)
+// One watcher over both sources so a response that finishes and settles its
+// final text in the same tick still sets `autoplayPending` before the widget is
+// built.
+watch([html, () => props.streaming], ([, streaming], [, prevStreaming]) => {
+  if (prevStreaming === true && streaming === false) autoplayPending = true
+  requestAnimationFrame(renderAll)
+})
 </script>
 
 <template>

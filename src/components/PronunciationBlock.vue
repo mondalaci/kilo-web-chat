@@ -3,8 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { Check, KeyRound, Loader2, Play, Square, Volume2 } from "lucide-vue-next"
 import { parsePronunciation } from "@/utils/pronunciation"
 import { priceLabel, useSpeech } from "@/stores/speech"
+import { registerPronunciation, shortcutsVisible } from "@/stores/shortcuts"
 
-const props = defineProps<{ text: string }>()
+const props = defineProps<{ text: string; autoplay?: boolean }>()
 
 const {
   models,
@@ -68,6 +69,9 @@ function playBlob(blob: Blob): Promise<void> {
     const finish = () => {
       if (settled) return
       settled = true
+      audio.onended = null
+      audio.onerror = null
+      audio.onpause = null
       URL.revokeObjectURL(url)
       if (currentAudio === audio) currentAudio = null
       resolve()
@@ -128,6 +132,15 @@ async function playAll() {
   }
 }
 
+/** Alt+V (and the play-all button): stop whatever is playing, else play all. */
+function togglePlayback() {
+  if (playingAll.value || playingIndex.value !== null) {
+    stop()
+    return
+  }
+  void playAll()
+}
+
 function onModelChange(event: Event) {
   stop()
   playError.value = null
@@ -139,11 +152,20 @@ function onVoiceChange(event: Event) {
   setVoice((event.target as HTMLSelectElement).value)
 }
 
-onMounted(() => {
-  void loadModels()
+let unregisterShortcut: (() => void) | null = null
+
+onMounted(async () => {
+  unregisterShortcut = registerPronunciation(togglePlayback)
+  await loadModels()
+  if (!props.autoplay) return
+  if (!hasKey.value || !entries.value.length) return
+  playAll()
 })
 
-onBeforeUnmount(stop)
+onBeforeUnmount(() => {
+  unregisterShortcut?.()
+  stop()
+})
 </script>
 
 <template>
@@ -151,6 +173,7 @@ onBeforeUnmount(stop)
     <div class="pr-head">
       <span class="pr-title">
         <Volume2 :size="15" /> Pronunciation
+        <span v-if="shortcutsVisible && entries.length" class="kbd">V</span>
         <span v-if="keySource === 'server'" class="pr-key-badge" title="Using the connected Kilo server's OpenRouter key">
           key: Kilo server
         </span>
@@ -182,7 +205,7 @@ onBeforeUnmount(stop)
         <button
           v-if="entries.length > 1"
           class="pr-btn pr-all"
-          :title="playingAll ? 'Stop' : 'Play all'"
+          :title="playingAll ? 'Stop (Alt+V)' : 'Play all (Alt+V)'"
           @click="playAll"
         >
           <Square v-if="playingAll" :size="13" />
