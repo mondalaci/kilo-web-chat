@@ -139,7 +139,8 @@ function onKeydown(event: KeyboardEvent) {
           </span>
         </div>
         <div class="bar-right">
-          <button v-if="isBusy" class="send stop" title="Stop" @click="stop">
+          <button v-if="isBusy" class="send stop" title="Stop (Alt+X)" @click="stop">
+            <kbd v-if="shortcutsVisible" class="kbd floating">X</kbd>
             <Square :size="14" fill="currentColor" />
           </button>
           <button
@@ -283,6 +284,7 @@ function onKeydown(event: KeyboardEvent) {
   cursor: default;
 }
 .send.stop {
+  position: relative;
   background: var(--bg-active);
   color: var(--text);
 }

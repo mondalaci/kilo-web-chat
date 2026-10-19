@@ -28,6 +28,7 @@ export const shortcutKeys = {
   effort: "KeyE",
   tools: "KeyT",
   pronounce: "KeyV",
+  stop: "KeyX",
 } as const
 
 /**

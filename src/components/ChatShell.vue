@@ -22,7 +22,7 @@ import { formatConversationDate, formatConversationDateTime, formatCost } from "
 
 const app = useApp()
 const { current, currentID } = app.sessions
-const { error, messages } = app.chat
+const { error, messages, isBusy } = app.chat
 const { providers, selectedModelInfo } = app.server
 const { newChat } = app
 
@@ -235,6 +235,10 @@ function onKeyDown(event: KeyboardEvent) {
     case shortcutKeys.pronounce:
       event.preventDefault()
       togglePronunciation()
+      break
+    case shortcutKeys.stop:
+      event.preventDefault()
+      if (isBusy.value) void app.abort()
       break
     case shortcutKeys.newChat:
       event.preventDefault()

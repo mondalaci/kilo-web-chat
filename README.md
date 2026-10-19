@@ -32,7 +32,7 @@ model/token/cost gutter, and the composer with mode/model/effort selectors:
 
 Hold `Alt` to reveal the keyboard shortcuts on the controls they trigger
 (`P` project, `N` new chat, `S` sessions, `T` tools, `A` mode, `M` model,
-`E` effort, `C` focus chat):
+`E` effort, `C` focus chat, `X` stop):
 
 ![Keyboard shortcuts](docs/screenshots/shortcuts.png)
 
