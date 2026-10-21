@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from "vue"
-import { ArrowUp, Square, TriangleAlert, X } from "lucide-vue-next"
+import { ArrowUp, FileText, Paperclip, Square, TriangleAlert, X } from "lucide-vue-next"
 import AgentSelector from "./AgentSelector.vue"
 import ModelSelector from "./ModelSelector.vue"
 import VariantSelector from "./VariantSelector.vue"
 import { useApp } from "@/stores/app"
-import { addImageFile, attachments, clearAttachments, composerFocusRequest, draft, removeAttachment } from "@/stores/draft"
+import { addFile, attachments, clearAttachments, composerFocusRequest, draft, removeAttachment } from "@/stores/draft"
 import { useServer } from "@/stores/server"
 import { shortcutsVisible } from "@/stores/shortcuts"
 
@@ -15,7 +15,10 @@ const { abort, sendMessage } = app
 const { selectedModelInfo, selectedModelVariants } = useServer()
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
 const dragging = ref(false)
+
+const isImage = (mime: string) => mime.startsWith("image/")
 
 const attachmentsUnsupported = () =>
   attachments.value.length > 0 && selectedModelInfo.value != null && !selectedModelInfo.value.capabilities?.attachment
@@ -37,23 +40,33 @@ onMounted(() => {
 
 function handleFiles(files: ArrayLike<File> | null | undefined) {
   if (!files) return
-  for (const file of Array.from(files)) void addImageFile(file)
+  for (const file of Array.from(files)) void addFile(file)
+}
+
+function pickFiles() {
+  fileInput.value?.click()
+}
+
+function onFilePicked(event: Event) {
+  const input = event.target as HTMLInputElement
+  handleFiles(input.files)
+  input.value = ""
 }
 
 function onPaste(event: ClipboardEvent) {
   const items = event.clipboardData?.items
   if (!items) return
-  const images: File[] = []
+  const files: File[] = []
   for (let i = 0; i < items.length; i++) {
     const item = items[i]
-    if (item.kind === "file" && item.type.startsWith("image/")) {
+    if (item.kind === "file") {
       const file = item.getAsFile()
-      if (file) images.push(file)
+      if (file) files.push(file)
     }
   }
-  if (images.length === 0) return
+  if (files.length === 0) return
   event.preventDefault()
-  handleFiles(images)
+  handleFiles(files)
 }
 
 function onDrop(event: DragEvent) {
@@ -108,8 +121,12 @@ function onKeydown(event: KeyboardEvent) {
       @drop.prevent="onDrop"
     >
       <div v-if="attachments.length" class="attachments">
-        <div v-for="item in attachments" :key="item.id" class="attachment">
-          <img :src="item.url" :alt="item.filename" />
+        <div v-for="item in attachments" :key="item.id" class="attachment" :class="{ file: !isImage(item.mime) }">
+          <img v-if="isImage(item.mime)" :src="item.url" :alt="item.filename" />
+          <template v-else>
+            <FileText :size="18" />
+            <span class="file-name" :title="item.filename">{{ item.filename }}</span>
+          </template>
           <button type="button" class="remove" :title="`Remove ${item.filename}`" @click="removeAttachment(item.id)">
             <X :size="12" />
           </button>
@@ -131,6 +148,16 @@ function onKeydown(event: KeyboardEvent) {
 
       <div class="bar">
         <div class="bar-left">
+          <input
+            ref="fileInput"
+            class="file-input"
+            type="file"
+            multiple
+            @change="onFilePicked"
+          />
+          <button type="button" class="attach" title="Attach files" @click="pickFiles">
+            <Paperclip :size="16" />
+          </button>
           <AgentSelector />
           <ModelSelector />
           <VariantSelector v-if="selectedModelVariants.length" />
@@ -224,6 +251,43 @@ function onKeydown(event: KeyboardEvent) {
 }
 .attachment .remove:hover {
   background: rgba(0, 0, 0, 0.85);
+}
+.attachment.file {
+  width: auto;
+  max-width: 220px;
+  height: 40px;
+  padding: 0 26px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+}
+.attachment.file .file-name {
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.file-input {
+  display: none;
+}
+.attach {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  transition: background 0.12s, color 0.12s;
+}
+.attach:hover {
+  background: var(--bg-active);
+  color: var(--text);
 }
 .input-wrap {
   position: relative;

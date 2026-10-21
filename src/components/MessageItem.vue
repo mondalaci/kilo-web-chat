@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue"
-import { File as FileIcon, User } from "lucide-vue-next"
+import { User } from "lucide-vue-next"
 import type { FilePart, MessageWithParts, Part, TextPart, ToolPart } from "@/api/types"
 import { formatCost, formatDateTime, formatTokens } from "@/utils/format"
 import { composedMessage } from "@/utils/compose"
 import { shortcutsVisible } from "@/stores/shortcuts"
 import Markdown from "./Markdown.vue"
+import PartFile from "./PartFile.vue"
 import PartMessageCompose from "./PartMessageCompose.vue"
 import PartReasoning from "./PartReasoning.vue"
 import PartTool from "./PartTool.vue"
@@ -44,10 +45,6 @@ const meta = computed(() => {
   }
 })
 
-function isImage(part: FilePart) {
-  return part.mime?.startsWith("image/") && (part.url?.startsWith("data:") || part.url?.startsWith("http"))
-}
-
 function isCompose(part: Part): boolean {
   return part.type === "tool" && composedMessage(part as ToolPart) !== null
 }
@@ -67,13 +64,7 @@ function isCompose(part: Part): boolean {
           <PartTool v-else :part="part" />
         </template>
 
-        <div v-else-if="part.type === 'file'" class="file">
-          <img v-if="isImage(part as FilePart)" :src="(part as FilePart).url" :alt="(part as FilePart).filename ?? 'image'" />
-          <a v-else class="file-chip" :href="(part as FilePart).url" target="_blank" rel="noreferrer">
-            <FileIcon :size="14" />
-            {{ (part as FilePart).filename ?? (part as FilePart).mime }}
-          </a>
-        </div>
+        <PartFile v-else-if="part.type === 'file'" :part="part as FilePart" />
       </template>
 
       <div v-if="streaming && !isUser" class="caret"></div>
@@ -143,26 +134,6 @@ function isCompose(part: Part): boolean {
   margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-.file {
-  margin: 6px 0;
-}
-.file img {
-  max-width: 100%;
-  max-height: 360px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-}
-.file-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  font-size: 12.5px;
-  text-decoration: none;
 }
 .caret {
   display: inline-block;
