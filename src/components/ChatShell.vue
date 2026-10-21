@@ -8,7 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "reka-ui"
-import { X, CircleAlert, Check, Copy, ExternalLink, Link2, Link2Off, Share2 } from "lucide-vue-next"
+import { X, CircleAlert, Check, Copy, ExternalLink, Link2, Link2Off, Moon, Share2, Sun } from "lucide-vue-next"
 import type { AssistantMessage } from "@/api/types"
 import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
@@ -18,6 +18,7 @@ import { useApp } from "@/stores/app"
 import { requestComposerFocus } from "@/stores/draft"
 import { requestOpen, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
 import { searchOpen, openSearch } from "@/stores/search"
+import { theme, toggleTheme } from "@/theme"
 import { formatConversationDate, formatConversationDateTime, formatCost } from "@/utils/format"
 
 const app = useApp()
@@ -300,6 +301,15 @@ onBeforeUnmount(() => {
             {{ contextLimit ? `${contextPercent}%` : "—" }}
           </span>
         </div>
+        <button
+          class="theme-btn"
+          :title="theme === 'dark' ? 'Light theme' : 'Dark theme'"
+          aria-label="Toggle dark mode"
+          @click="toggleTheme()"
+        >
+          <Sun v-if="theme === 'dark'" :size="16" />
+          <Moon v-else :size="16" />
+        </button>
         <DropdownMenuRoot v-if="isShared">
           <DropdownMenuTrigger as-child>
             <button
@@ -463,18 +473,22 @@ onBeforeUnmount(() => {
 .stat-divider {
   opacity: 0.5;
 }
+.theme-btn,
 .share-btn {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 12px;
   padding: 5px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
 }
+.theme-btn {
+  margin-left: 12px;
+}
+.theme-btn:hover,
 .share-btn:hover {
   background: var(--bg-hover);
   color: var(--text);
