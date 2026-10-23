@@ -4,7 +4,7 @@ import MessageItem from "./MessageItem.vue"
 import Spinner from "./Spinner.vue"
 import { useChat } from "@/stores/chat"
 
-const { messages, loading, currentSessionID, scrollToBottomRequest } = useChat()
+const { messages, loading, currentSessionID, scrollToBottomRequest, isBusy } = useChat()
 
 const viewport = ref<HTMLElement | null>(null)
 const pinned = ref(true)
@@ -17,6 +17,14 @@ const BOTTOM_EPSILON = 8
 let programmatic = false
 let touchY = 0
 
+/**
+ * The id of the trailing assistant message, used to decide which message may
+ * still be receiving output.
+ *
+ * A missing `time.completed` alone does not mean "streaming": an interrupted or
+ * migrated message keeps no completion time forever, which would leave a caret
+ * blinking in a session that is idle. The live session status gates it.
+ */
 const lastAssistantID = computed(() => {
   for (let i = messages.value.length - 1; i >= 0; i--) {
     if (messages.value[i].type === "assistant") return messages.value[i].id
@@ -102,7 +110,7 @@ watch(currentSessionID, () => {
         v-for="message in messages"
         :key="message.id"
         :message="message"
-        :streaming="message.id === lastAssistantID && message.type === 'assistant' && !message.time.completed"
+        :streaming="isBusy && message.id === lastAssistantID && message.type === 'assistant' && !message.time.completed"
       />
     </template>
 

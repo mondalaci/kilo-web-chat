@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue"
-import { Terminal, User } from "lucide-vue-next"
+import { Info, Sparkles, Terminal, User } from "lucide-vue-next"
 import type {
   AssistantContent,
   AssistantTool,
@@ -12,7 +12,6 @@ import { formatCost, formatDateTime, formatTokens } from "@/utils/format"
 import { attachmentView } from "@/utils/file"
 import { composedMessage } from "@/utils/compose"
 import { shortcutsVisible } from "@/stores/shortcuts"
-import { BRAND_LETTER } from "@/brand"
 import Markdown from "./Markdown.vue"
 import PartFile from "./PartFile.vue"
 import PartMessageCompose from "./PartMessageCompose.vue"
@@ -50,13 +49,18 @@ const shell = computed<SessionMessageShell | null>(() =>
   props.message.type === "shell" ? (props.message as SessionMessageShell) : null,
 )
 
-const note = computed(() => {
+/**
+ * Server notices and skill activations are authored by neither side of the
+ * conversation. They keep the assistant's avatar slot so their text starts at
+ * the same left edge as assistant prose, and the card fills the rest of the row.
+ */
+const notice = computed(() => {
   switch (props.message.type) {
     case "system":
     case "synthetic":
-      return props.message.text
+      return { text: props.message.text, icon: Info }
     case "skill":
-      return `Activated skill ${props.message.name}`
+      return { text: `Activated skill ${props.message.name}`, icon: Sparkles }
     default:
       return null
   }
@@ -103,7 +107,15 @@ const shellExit = computed(() => {
 
 <template>
   <div v-if="renders" class="message" :class="isUser ? 'user' : isAssistant ? 'assistant' : 'note-row'">
-    <div v-if="isAssistant" class="avatar" aria-hidden="true">{{ BRAND_LETTER }}</div>
+    <div v-if="isAssistant || notice" class="avatar" aria-hidden="true">
+      <svg class="robot" viewBox="0 0 24 24">
+        <rect class="robot-body" x="4.5" y="7.5" width="15" height="11.5" rx="3.5" />
+        <path class="robot-antenna" d="M12 7.5V4.5" />
+        <circle class="robot-body" cx="12" cy="3.3" r="1.3" />
+        <rect class="robot-eyes" x="8.2" y="11" width="2.4" height="2.4" rx="0.7" />
+        <rect class="robot-eyes" x="13.4" y="11" width="2.4" height="2.4" rx="0.7" />
+      </svg>
+    </div>
 
     <div
       v-if="isUser"
@@ -141,7 +153,10 @@ const shellExit = computed(() => {
       <span v-if="compaction.failure" class="compaction-error">{{ compaction.failure }}</span>
     </div>
 
-    <p v-else-if="note" class="note">{{ note }}</p>
+    <div v-else-if="notice" class="notice">
+      <component :is="notice.icon" :size="14" class="notice-icon" aria-hidden="true" />
+      <p class="notice-text">{{ notice.text }}</p>
+    </div>
 
     <div v-if="isUser" class="avatar user-avatar" aria-hidden="true"><User :size="15" /></div>
 
@@ -179,14 +194,32 @@ const shellExit = computed(() => {
   border-radius: 8px;
   display: grid;
   place-items: center;
-  font-size: 12px;
-  font-weight: 700;
-  background: var(--accent);
+  background: var(--avatar-tile, var(--accent));
   color: var(--accent-text);
   margin-top: 2px;
 }
+/* Bot glyph shared with the studio app: solid body with the eyes knocked back
+   to the tile colour, plus a stroke-only antenna stem so it reads as one piece. */
+.robot {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+.robot-body {
+  fill: currentColor;
+}
+.robot-antenna {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.robot-eyes {
+  fill: var(--avatar-tile, var(--accent));
+}
 .user-avatar {
-  background: var(--bg-active);
+  --avatar-tile: var(--bg-active);
+  background: var(--avatar-tile);
   color: var(--text-muted);
   font-size: 10px;
 }
@@ -270,8 +303,10 @@ const shellExit = computed(() => {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+/* Rows without a bubble (notices, compaction, shell) lay out from the left.
+   Items with `margin: … auto` still center themselves. */
 .note-row {
-  justify-content: center;
+  justify-content: flex-start;
 }
 .compaction {
   display: flex;
@@ -287,11 +322,26 @@ const shellExit = computed(() => {
 .compaction-error {
   color: var(--danger);
 }
-.note {
-  margin: 0;
-  padding: 4px 12px;
-  font-size: 12px;
+.notice {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.notice-icon {
+  flex: none;
+  margin-top: 2px;
   color: var(--text-faint);
+}
+.notice-text {
+  margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
