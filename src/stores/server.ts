@@ -7,7 +7,7 @@ import { baseCost, isFreeModel, variantIDs } from "@/api/types"
 const PREFS_KEY = "opencode-web-chat.prefs"
 
 interface Preferences {
-  [origin: string]: { agent?: string; model?: ModelRef; directory?: string }
+  [origin: string]: { agent?: string; model?: ModelRef; directory?: string; imageModel?: string }
 }
 
 function loadPrefs(): Preferences {
@@ -58,6 +58,8 @@ const error = ref<string | null>(null)
 
 const selectedAgent = ref<string>("build")
 const selectedModel = ref<ModelRef | null>(null)
+/** Image model the `generate_image` tool should use; null means its own default. */
+const selectedImageModel = ref<string | null>(null)
 
 /** Providers sorted so connected ones come first, then alphabetically. */
 const providerGroups = computed<ModelGroup[]>(() => {
@@ -97,6 +99,19 @@ const selectedModelInfo = computed<Model | undefined>(() => {
 
 const selectedModelVariants = computed<string[]>(() => variantIDs(selectedModelInfo.value))
 const selectedVariant = computed<string | undefined>(() => selectedModel.value?.variant)
+
+/**
+ * Models that can return an image, alphabetical.
+ *
+ * The auto routers advertise image output but route wherever they like, which is
+ * the wrong kind of surprise for a picture, so they are left out of the picker.
+ */
+const imageModels = computed<Model[]>(() =>
+  models.value
+    .filter((model) => (model.capabilities?.output ?? []).includes("image"))
+    .filter((model) => !/(^|\/)(auto|auto-beta)$/.test(model.id))
+    .sort((a, b) => (a.name ?? a.id).localeCompare(b.name ?? b.id)),
+)
 
 function parseModelString(value: string | undefined): ModelRef | null {
   if (!value) return null
@@ -153,6 +168,7 @@ export function useServer() {
       resolved(selectedAgentInfo.value?.model),
     ]
     selectedModel.value = candidates.find((candidate) => candidate != null) ?? null
+    selectedImageModel.value = saved.imageModel ?? null
   }
 
   async function load(client: ServerClient, instanceOrigin: string, projectDirectory?: string) {
@@ -166,6 +182,7 @@ export function useServer() {
     const saved = prefs.value[instanceOrigin] ?? {}
     if (saved.agent) selectedAgent.value = saved.agent
     if (saved.model) selectedModel.value = resolved(saved.model)
+    selectedImageModel.value = saved.imageModel ?? null
 
     try {
       const dir = projectDirectory ?? saved.directory
@@ -221,6 +238,7 @@ export function useServer() {
     const saved = prefs.value[instanceOrigin] ?? {}
     if (saved.agent) selectedAgent.value = saved.agent
     if (saved.model) selectedModel.value = resolved(saved.model)
+    selectedImageModel.value = saved.imageModel ?? null
   }
 
   function setDirectory(dir: string) {
@@ -244,6 +262,7 @@ export function useServer() {
     configValues.value = null
     serverDefaultModel.value = null
     selectedModel.value = null
+    selectedImageModel.value = null
   }
 
   /**
@@ -285,6 +304,14 @@ export function useServer() {
     persistPrefs()
   }
 
+  /** Remember the image model, or `null` to leave the choice to the tool. */
+  function setImageModel(id: string | null) {
+    selectedImageModel.value = id
+    const key = origin.value ?? ""
+    prefs.value = { ...prefs.value, [key]: { ...prefs.value[key], imageModel: id ?? undefined } }
+    persistPrefs()
+  }
+
   return {
     directory,
     agents,
@@ -304,6 +331,8 @@ export function useServer() {
     selectedModelInfo,
     selectedModelVariants,
     selectedVariant,
+    selectedImageModel,
+    imageModels,
     load,
     setDirectory,
     savedDirectory,
@@ -313,6 +342,7 @@ export function useServer() {
     reset,
     setAgentLocal,
     setModelLocal,
+    setImageModel,
   }
 }
 

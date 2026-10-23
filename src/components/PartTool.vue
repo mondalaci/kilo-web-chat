@@ -3,7 +3,7 @@ import { computed, ref } from "vue"
 import { Check, ChevronRight, CircleAlert, Terminal } from "lucide-vue-next"
 import type { AssistantTool } from "@/api/types"
 import { prettyJson, toolSummary } from "@/utils/format"
-import { toolFileView, type FileView } from "@/utils/file"
+import { toolFileView, isHttpUrl, type FileView } from "@/utils/file"
 import JsonBlock from "./JsonBlock.vue"
 import PartFile from "./PartFile.vue"
 import Spinner from "./Spinner.vue"
@@ -52,6 +52,15 @@ const files = computed<FileView[]>(() => {
   return out
 })
 
+/**
+ * A picture is the point of the call, so it is shown even while the card is
+ * folded; the JSON behind it stays in the body. Every other file, and any image
+ * the browser cannot render, keeps its place in the card's own file list.
+ */
+const renderableImage = (file: FileView) => file.mime.startsWith("image/") && (file.inline || isHttpUrl(file.url))
+const images = computed(() => files.value.filter(renderableImage))
+const otherFiles = computed(() => files.value.filter((file) => !renderableImage(file)))
+
 const busy = computed(() => state.value.status === "streaming" || state.value.status === "running")
 </script>
 
@@ -68,6 +77,9 @@ const busy = computed(() => state.value.status === "streaming" || state.value.st
         <CircleAlert v-else :size="14" class="err" />
       </span>
     </button>
+    <div v-if="images.length" class="images">
+      <PartFile v-for="(image, index) in images" :key="index" :file="image" />
+    </div>
     <div v-show="open" class="body">
       <div class="section">
         <div class="label">Input</div>
@@ -77,9 +89,9 @@ const busy = computed(() => state.value.status === "streaming" || state.value.st
         <div class="label">Output</div>
         <JsonBlock :text="outputText" />
       </div>
-      <div v-if="files.length" class="section">
+      <div v-if="otherFiles.length" class="section">
         <div class="label">Files</div>
-        <PartFile v-for="(file, index) in files" :key="index" :file="file" />
+        <PartFile v-for="(file, index) in otherFiles" :key="index" :file="file" />
       </div>
     </div>
   </div>
@@ -144,6 +156,13 @@ const busy = computed(() => state.value.status === "streaming" || state.value.st
 .body {
   border-top: 1px solid var(--border);
   padding: 8px 12px 10px;
+}
+/* A picture a tool produced shows without the body being expanded. */
+.images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 10px;
 }
 .section + .section {
   margin-top: 8px;

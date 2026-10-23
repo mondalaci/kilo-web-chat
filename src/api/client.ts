@@ -464,7 +464,7 @@ export class ServerClient {
 
   async prompt(
     sessionID: string,
-    body: { text: string; files?: PromptFileInput[] },
+    body: { text: string; files?: PromptFileInput[]; metadata?: Record<string, string> },
     opts?: CallOptions,
   ): Promise<SessionMessageID> {
     const result = await this.request(opts, (requestOptions) =>
@@ -473,6 +473,9 @@ export class ServerClient {
           sessionID,
           text: body.text,
           files: body.files?.map((file) => ({ uri: file.uri, name: file.name })),
+          // Per-turn admission metadata. The server hands it to plugins, which is
+          // how the image tool learns which picture model this client wants.
+          metadata: body.metadata,
         },
         requestOptions,
       ),

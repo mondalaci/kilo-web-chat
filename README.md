@@ -249,6 +249,11 @@ src/
 - **Stored commands are not surfaced**: the app does not run `/name`
   invocations from the composer. The server's command list is not fetched at
   all; typing `/name` sends it as ordinary text.
+- **Image generation** is a server-side plugin's tool (`generate_image`), and
+  the composer's image-model pill picks the model that tool runs on. The choice
+  travels with each prompt as admission metadata, so it is per turn and never
+  changes the conversation's own model. A picture the tool returns is shown
+  even while the tool card stays folded, since it is the point of the call.
 - The optional content-search service (the `opencode-search` sibling
   repository, bound in `src/api/search.ts`) indexes a server database
   independently of the opencode HTTP API. When it is not running, search falls

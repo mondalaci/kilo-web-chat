@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from "vue"
 import { ArrowUp, FileText, Paperclip, Square, TriangleAlert, X } from "lucide-vue-next"
 import AgentSelector from "./AgentSelector.vue"
+import ImageModelSelector from "./ImageModelSelector.vue"
 import ModelSelector from "./ModelSelector.vue"
 import VariantSelector from "./VariantSelector.vue"
 import { useApp } from "@/stores/app"
@@ -15,7 +16,7 @@ import { acceptsText, answerFromText } from "@/utils/form"
 const app = useApp()
 const { sending, isBusy, awaitingUser, pendingForms } = app.chat
 const { abort, sendMessage } = app
-const { selectedModelInfo, selectedModelVariants } = useServer()
+const { selectedModelInfo, selectedModelVariants, imageModels } = useServer()
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -200,6 +201,7 @@ function onKeydown(event: KeyboardEvent) {
               <VariantSelector grouped />
             </template>
           </div>
+          <ImageModelSelector v-if="imageModels.length" />
           <span v-if="attachmentsUnsupported()" class="warn" title="The selected model may not accept images">
             <TriangleAlert :size="12" /> model may not accept images
           </span>
