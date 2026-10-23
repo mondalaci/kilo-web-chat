@@ -199,6 +199,8 @@ export function useServer() {
       skills.value = skillList
       // Don't clobber the current agent/model when only switching project.
       if (changedOrigin || !selectedModel.value) applyDefaults()
+      // A remembered agent can name one the server no longer has.
+      ensureAgent()
       // A remembered variant can outlive the model it was chosen for — saved
       // preferences, or a model whose variants changed — and the server refuses a
       // switch that names one the model does not offer.
@@ -248,9 +250,23 @@ export function useServer() {
     selectedModel.value = null
   }
 
+  /**
+   * Keep the selection on an agent the server still has.
+   *
+   * A remembered agent can outlive the agent itself: a saved preference, or a
+   * session created while a now-deleted agent was selected. Naming one to the
+   * server fails the next prompt with `Agent not found`, so fall back to the first
+   * primary agent the server offers.
+   */
+  function ensureAgent() {
+    if (agents.value.some((item) => item.id === selectedAgent.value)) return
+    selectedAgent.value = modes.value[0]?.id ?? agents.value[0]?.id ?? "build"
+  }
+
   /** Adopt a session's own agent/model as the current selection. */
   function applySession(session: { agent?: string; model?: ModelRef }) {
     if (session.agent) selectedAgent.value = session.agent
+    ensureAgent()
     const model = resolved(session.model)
     if (model) selectedModel.value = model
   }
