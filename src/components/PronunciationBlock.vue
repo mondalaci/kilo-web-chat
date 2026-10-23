@@ -17,6 +17,7 @@ const {
   hasKey,
   slow,
   loadModels,
+  loadServerKey,
   selectModel,
   setVoice,
   setApiKey,
@@ -156,7 +157,10 @@ let unregisterShortcut: (() => void) | null = null
 
 onMounted(async () => {
   unregisterShortcut = registerPronunciation(togglePlayback)
-  await loadModels()
+  // The key can come from the server, so wait for that read: on a fresh tab
+  // (the launcher's vocab link) it is still in flight when the widget mounts,
+  // and deciding now would see no key and skip the autoplay entirely.
+  await Promise.all([loadModels(), loadServerKey()])
   if (!props.autoplay) return
   if (!hasKey.value || !entries.value.length) return
   playAll()

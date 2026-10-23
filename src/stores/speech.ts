@@ -71,7 +71,8 @@ const slow = ref(readStored(SLOW_KEY) === "1")
 // The connected opencode server's OpenRouter credential, fetched on demand and
 // kept in memory only so we never copy the server secret into localStorage.
 const serverKey = ref("")
-let serverKeyLoaded = false
+/** In-flight (or settled) read of the server key, shared by every caller. */
+let serverKeyPromise: Promise<void> | null = null
 
 /** Manual key wins; otherwise fall back to the connected server's key. */
 const effectiveKey = computed(() => apiKey.value || serverKey.value)
@@ -116,13 +117,21 @@ function selectModel(id: string) {
 }
 
 export function useSpeech() {
-  /** Read the server-held OpenRouter credential once, for the fallback key. */
-  async function loadServerKey() {
-    if (serverKeyLoaded) return
-    serverKeyLoaded = true
-    const client = useConnection().client.value
-    if (!client) return
-    serverKey.value = (await client.credentialKey("openrouter").catch(() => null)) ?? ""
+  /**
+   * Read the server-held OpenRouter credential once, for the fallback key.
+   *
+   * Returns the in-flight promise rather than dropping it, because the caller that
+   * needs the key *now* — the pronunciation widget deciding whether to autoplay —
+   * would otherwise race the fetch and see no key.
+   */
+  function loadServerKey(): Promise<void> {
+    if (serverKeyPromise) return serverKeyPromise
+    serverKeyPromise = (async () => {
+      const client = useConnection().client.value
+      if (!client) return
+      serverKey.value = (await client.credentialKey("openrouter").catch(() => null)) ?? ""
+    })()
+    return serverKeyPromise
   }
 
   async function loadModels(force = false) {
