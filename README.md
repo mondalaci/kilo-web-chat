@@ -20,10 +20,11 @@ targets (see the dependency version in `package.json`).
   server's switch endpoints, with per-server remembered defaults.
 - **Interactive prompts** — permission requests (allow once / always / deny) and
   agent forms (options, multi-select, yes/no, numbers, free text).
-- **Session management** — new chat, rename, delete, project switching, live
-  status.
+- **Session management** — new chat, rename, archive (reversibly) with a
+  restore/delete view, project switching, live status.
 - **Conversation search** — server-side title search with cursor paging, plus
-  optional content search through the shared `opencode-search` service.
+  optional content search through the shared `opencode-search` service; both
+  scoped to the open project.
 - **Light / dark theme**, responsive sidebar, keyboard shortcuts.
 
 ## Getting started
@@ -196,8 +197,9 @@ src/
   stores/
     connection.ts   Instance list, saved connections, client lifecycle
     server.ts       Agents, models, providers, projects, preferences
-    sessions.ts     Session list + mutations
+    sessions.ts     Session list + mutations (archive is the reversible form)
     chat.ts         Messages, streaming assembly, permissions, forms
+    archive.ts      Archived conversations of the open project
     live.ts         Shared SSE subscription with reconnect + resync
     app.ts          Wires the stores together into app-level actions
   components/       UI (Reka UI primitives + custom chat components)
@@ -225,7 +227,9 @@ src/
 - **Streaming** combines the per-block delta events (`session.text.delta`,
   `session.reasoning.delta`, `session.tool.*`) into the message content array,
   then reconciles against the server's own copy at the end of each step, so a
-  dropped or out-of-order frame cannot leave the view permanently wrong.
+  dropped or out-of-order frame cannot leave the view permanently wrong. The
+  reconcile reads the newest page and folds it in, and it settles anything the
+  finished turn left looking in flight.
 - **Attachments** are sent as `data:` URIs in the prompt's `files` list, which
   the server accepts for files that only exist in the browser. Files echoed back
   on a message are rendered inline (image preview, text preview, download).
@@ -236,6 +240,11 @@ src/
   per-message tool switch — tool availability is expressed as permission rules
   (`permissions` in the config, or per session). The previous sidebar tool
   toggles therefore have no equivalent.
+- **Conversations are archived, not deleted**: `DELETE` in v2 removes the row,
+  its messages and their parts for good, with nothing to restore. The sidebar
+  therefore offers *Archive* (`PATCH` with `archived: true`), and the archive
+  view is where a conversation can be restored — or deleted permanently, after
+  a confirmation.
 - **Commands are fetched but not surfaced** in an autocomplete menu.
 - The optional content-search service (the `opencode-search` sibling
   repository, bound in `src/api/search.ts`) indexes a server database

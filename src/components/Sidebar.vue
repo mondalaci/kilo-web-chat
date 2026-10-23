@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "reka-ui"
 import {
+  Archive,
   LogOut,
   MessageSquarePlus,
   MoreHorizontal,
@@ -16,24 +17,25 @@ import {
   Pencil,
   Search,
   Sun,
-  Trash2,
 } from "lucide-vue-next"
 import Spinner from "./Spinner.vue"
 import ProjectSelector from "./ProjectSelector.vue"
 import SidebarSearch from "./SidebarSearch.vue"
+import ArchivePanel from "./ArchivePanel.vue"
 import { BRAND_LETTER } from "@/brand"
 import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
 import { theme, toggleTheme } from "@/theme"
 import { shortcutsVisible, openRequests } from "@/stores/shortcuts"
 import { openSearch, searchOpen } from "@/stores/search"
+import { archiveOpen } from "@/stores/archive"
 
 const app = useApp()
 const { sorted, currentID, loading } = app.sessions
 const { connected, connectError } = app.connection
 const { live, connecting } = app.live
 const { isBusy } = app.chat
-const { newChat, selectSession, removeSession, renameSession, disconnect } = app
+const { newChat, selectSession, archiveSession, openArchive, renameSession, disconnect } = app
 
 const editingID = ref<string | null>(null)
 const editTitle = ref("")
@@ -165,6 +167,7 @@ function onSessionsKeydown(event: KeyboardEvent) {
 <template>
   <aside class="sidebar">
     <SidebarSearch v-if="searchOpen" />
+    <ArchivePanel v-else-if="archiveOpen" />
     <template v-else>
     <header class="head">
       <span class="logo">{{ BRAND_LETTER }}</span>
@@ -172,6 +175,9 @@ function onSessionsKeydown(event: KeyboardEvent) {
       <button class="icon search-btn" title="Search conversations (Alt+F)" @click="openSearch()">
         <Search :size="16" />
         <kbd v-if="shortcutsVisible" class="kbd floating">F</kbd>
+      </button>
+      <button class="icon" title="Archived conversations" @click="openArchive()">
+        <Archive :size="16" />
       </button>
       <button class="icon new-chat-btn" title="New chat (Alt+N)" @click="newChat()">
         <MessageSquarePlus :size="18" />
@@ -214,8 +220,8 @@ function onSessionsKeydown(event: KeyboardEvent) {
                 <Pencil :size="14" /> Rename
               </DropdownMenuItem>
               <DropdownMenuSeparator class="kilo-menu-sep" />
-              <DropdownMenuItem class="kilo-menu-item danger" @select="removeSession(session.id)">
-                <Trash2 :size="14" /> Delete
+              <DropdownMenuItem class="kilo-menu-item" @select="archiveSession(session.id)">
+                <Archive :size="14" /> Archive
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenuPortal>
