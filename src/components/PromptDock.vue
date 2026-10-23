@@ -3,6 +3,7 @@ import { computed, reactive, ref } from "vue"
 import { ExternalLink, HelpCircle, ShieldAlert, X } from "lucide-vue-next"
 import type { FormField, FormInfo, FormValue } from "@/api/types"
 import { useApp } from "@/stores/app"
+import { isVisible, visibleFields } from "@/utils/form"
 
 const app = useApp()
 const { pendingPermissions, pendingForms } = app.chat
@@ -31,17 +32,11 @@ function answerText(form: FormInfo, field: FormField): string {
 
 /** Whether a conditional field is visible given the current draft answers. */
 function visible(form: FormInfo, field: FormField): boolean {
-  if ("hidden" in field && field.hidden) return false
-  if (!("when" in field) || !field.when?.length) return true
-  return field.when.every((condition) => {
-    const current = answers[`${form.id}:${condition.key}`]
-    const matches = Array.isArray(current) ? current.includes(String(condition.value)) : current === condition.value
-    return condition.op === "eq" ? matches : !matches
-  })
+  return isVisible(field, (key) => answers[`${form.id}:${key}`])
 }
 
-function visibleFields(form: FormInfo): FormField[] {
-  return form.fields.filter((field) => visible(form, field))
+function formFields(form: FormInfo): FormField[] {
+  return visibleFields(form, (key) => answers[`${form.id}:${key}`])
 }
 
 /** Single-choice selection for a `string` field that has options. */
@@ -108,7 +103,7 @@ function setNumber(form: FormInfo, field: FormField, value: string) {
 
 function buildAnswer(form: FormInfo): Record<string, FormValue> {
   const answer: Record<string, FormValue> = {}
-  for (const field of visibleFields(form)) {
+  for (const field of formFields(form)) {
     const value = answers[key(form, field)]
     if (value === undefined || value === "") continue
     if (Array.isArray(value) && value.length === 0) continue
@@ -118,7 +113,7 @@ function buildAnswer(form: FormInfo): Record<string, FormValue> {
 }
 
 function missingRequired(form: FormInfo): boolean {
-  return visibleFields(form).some((field) => {
+  return formFields(form).some((field) => {
     if (!("required" in field && field.required)) return false
     const value = answers[key(form, field)]
     if (value === undefined || value === "") return true
@@ -169,7 +164,7 @@ const isEmpty = computed(() => !pendingPermissions.value.length && !pendingForms
         <button class="close" title="Cancel" @click="dismiss(form)"><X :size="15" /></button>
       </div>
 
-      <div v-for="field in visibleFields(form)" :key="field.key" class="field">
+      <div v-for="field in formFields(form)" :key="field.key" class="field">
         <p class="field-title">
           {{ field.title || field.key }}
           <span v-if="'required' in field && field.required" class="required">*</span>

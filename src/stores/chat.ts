@@ -84,6 +84,40 @@ function mergeMessages(current: SessionMessageInfo[], fetched: SessionMessageInf
   return [...byID.values()].sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
 }
 
+/**
+ * The attachments of an optimistic user message.
+ *
+ * The composer's files only exist in the browser as `data:` URLs, and a message
+ * whose `data` is missing has nothing to render — it would show as a bare file
+ * name — so the bytes travel with the copy until the server's own record lands.
+ */
+function fileAttachments(files?: PromptFileInput[]): SessionMessageUser["files"] {
+  return files?.map((file) => {
+    const parsed = parseDataUrl(file.uri)
+    return {
+      mime: parsed?.mime ?? "",
+      name: file.name,
+      data: parsed?.data ?? "",
+      source: { type: "inline" as const },
+    }
+  })
+}
+
+/**
+ * Commit the composer's agent and model onto the session.
+ *
+ * v2 keeps both on the session rather than on the message, so they are asserted
+ * here instead of being trusted to have landed from an earlier switch.
+ */
+async function commitSelection(
+  client: ServerClient,
+  sessionID: string,
+  input: { model?: ModelRef; agent?: string },
+) {
+  if (input.model) await client.switchModel(sessionID, input.model)
+  if (input.agent) await client.switchAgent(sessionID, input.agent)
+}
+
 function findMessage(messageID: string) {
   return messages.value.find((item) => item.id === messageID) as SessionMessageAssistant | undefined
 }
@@ -427,29 +461,60 @@ export function useChat() {
     scrollToBottomRequest.value++
     reconcileContext = { client, sessionID }
     try {
-      // v2 keeps the agent and the model on the session, so a switch the user
-      // made is committed here rather than trusted to have landed earlier.
-      if (body.model) await client.switchModel(sessionID, body.model)
-      if (body.agent) await client.switchAgent(sessionID, body.agent)
+      await commitSelection(client, sessionID, body)
       const messageID = await client.prompt(sessionID, { text: body.text, files: body.files })
       // Show the message immediately, under the id the server gave it, so the
       // conversation's own copy replaces it in place rather than appearing beside
       // it. The inline bytes have to travel with it: an image whose `data` is
       // missing has nothing to render, so it would show as a bare file name —
       // exactly the attachment the composer had just been previewing.
-      const optimistic: SessionMessageUser = {
-        id: messageID || `local-${Date.now()}`,
-        type: "user",
-        text: body.text,
-        files: body.files?.map((file) => ({
-          mime: parseDataUrl(file.uri)?.mime ?? "",
-          name: file.name,
-          data: parseDataUrl(file.uri)?.data ?? "",
-          source: { type: "inline" },
-        })),
-        time: { created: Date.now() },
-      }
-      messages.value = [...messages.value, optimistic]
+      messages.value = [
+        ...messages.value,
+        {
+          id: messageID || `local-${Date.now()}`,
+          type: "user",
+          text: body.text,
+          files: fileAttachments(body.files),
+          time: { created: Date.now() },
+        },
+      ]
+      status.value = { type: "busy" }
+    } catch (err) {
+      error.value = err instanceof Error ? err.message : String(err)
+      throw err
+    } finally {
+      sending.value = false
+    }
+  }
+
+  /**
+   * Run a stored command (`/name`).
+   *
+   * The server owns the prompt the command expands to, so the conversation
+   * shows the invocation the user typed; the copy is optimistic because the
+   * command produces no user message event of its own.
+   */
+  async function sendCommand(
+    client: ServerClient,
+    sessionID: string,
+    input: { name: string; text: string; files?: PromptFileInput[]; model?: ModelRef; agent?: string },
+  ) {
+    sending.value = true
+    error.value = null
+    scrollToBottomRequest.value++
+    try {
+      await commitSelection(client, sessionID, input)
+      await client.command(sessionID, { name: input.name, text: input.text, files: input.files })
+      messages.value = [
+        ...messages.value,
+        {
+          id: `local-${Date.now()}`,
+          type: "user",
+          text: `/${input.name}${input.text ? ` ${input.text}` : ""}`,
+          files: fileAttachments(input.files),
+          time: { created: Date.now() },
+        },
+      ]
       status.value = { type: "busy" }
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err)
@@ -782,6 +847,7 @@ export function useChat() {
     scrollToBottomRequest,
     open,
     send,
+    sendCommand,
     abort,
     replyPermission,
     replyForm,

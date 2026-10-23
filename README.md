@@ -19,7 +19,8 @@ targets (see the dependency version in `package.json`).
 - **Agent and model selection** — applied to the open session through the
   server's switch endpoints, with per-server remembered defaults.
 - **Interactive prompts** — permission requests (allow once / always / deny) and
-  agent forms (options, multi-select, yes/no, numbers, free text).
+  agent forms (options, multi-select, yes/no, numbers, free text), with a
+  free-form question answerable by typing it straight into the composer.
 - **Session management** — new chat, rename, archive (reversibly) with a
   restore/delete view, project switching, live status.
 - **Conversation search** — server-side title search with cursor paging, plus
@@ -245,7 +246,11 @@ src/
   therefore offers *Archive* (`PATCH` with `archived: true`), and the archive
   view is where a conversation can be restored — or deleted permanently, after
   a confirmation.
-- **Commands are fetched but not surfaced** in an autocomplete menu.
+- **Commands** are offered as a `/` autocomplete menu in the composer; a name
+  that matches a stored command runs it through the server (`POST
+  /api/session/{id}/command`) instead of sending its text, and whatever follows
+  the name becomes the command's input. An unknown `/name` is sent as plain
+  text.
 - The optional content-search service (the `opencode-search` sibling
   repository, bound in `src/api/search.ts`) indexes a server database
   independently of the opencode HTTP API. When it is not running, search falls

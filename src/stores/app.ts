@@ -232,6 +232,25 @@ export function useApp() {
     })
   }
 
+  /** Run a stored command (`/name`) in the open conversation. */
+  async function sendCommand(name: string, text: string, files: PromptFileInput[] = []) {
+    const client = connection.client.value
+    if (!client) return
+    let sessionID = sessions.currentID.value
+    if (!sessionID) {
+      const session = await newChat()
+      if (!session) return
+      sessionID = session.id
+    }
+    await chat.sendCommand(client, sessionID, {
+      name,
+      text,
+      files,
+      model: server.selectedModel.value ?? undefined,
+      agent: server.selectedAgent.value ?? undefined,
+    })
+  }
+
   async function abort() {
     const client = connection.client.value
     const sessionID = sessions.currentID.value
@@ -344,6 +363,7 @@ export function useApp() {
     openSessionByID,
     newChat,
     sendMessage,
+    sendCommand,
     abort,
     archiveSession,
     openArchive,
