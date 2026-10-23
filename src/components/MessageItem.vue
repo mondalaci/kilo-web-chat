@@ -12,6 +12,7 @@ import { formatCost, formatDateTime, formatTokens } from "@/utils/format"
 import { attachmentView } from "@/utils/file"
 import { composedMessage } from "@/utils/compose"
 import { shortcutsVisible } from "@/stores/shortcuts"
+import { useServer } from "@/stores/server"
 import Markdown from "./Markdown.vue"
 import PartFile from "./PartFile.vue"
 import PartMessageCompose from "./PartMessageCompose.vue"
@@ -19,6 +20,9 @@ import PartReasoning from "./PartReasoning.vue"
 import PartTool from "./PartTool.vue"
 
 const props = defineProps<{ message: SessionMessageInfo; streaming?: boolean }>()
+
+/** The model list, for naming the model a message ran on. */
+const { models } = useServer()
 
 const kind = computed(() => props.message.type)
 const isUser = computed(() => kind.value === "user")
@@ -86,14 +90,34 @@ const retryNote = computed(() => {
   return retry ? `Retrying (attempt ${retry.attempt})…` : null
 })
 
+/**
+ * The model a message ran on, as the picker named it, with the effort beside it.
+ *
+ * A message records only the model's id, which reads as a slug rather than as the
+ * name the picker showed; the id stays available in the tooltip, and as the
+ * fallback for a model the server no longer offers. "default" is the model's own
+ * neutral effort, so it is left out.
+ */
+const modelLabel = computed(() => {
+  const ref_ = assistant.value?.model
+  if (!ref_) return null
+  const info = models.value.find((item) => item.providerID === ref_.providerID && item.id === ref_.id)
+  return {
+    name: info?.name || ref_.id,
+    effort: ref_.variant && ref_.variant !== "default" ? ref_.variant : null,
+    reference: ref_.id,
+  }
+})
+
 const meta = computed(() => {
   const message = assistant.value
   if (!message) return null
   const tokens = message.tokens
   const total = tokens ? (tokens.input ?? 0) + (tokens.output ?? 0) + (tokens.reasoning ?? 0) : 0
-  const model = message.model?.id ?? ""
   return {
-    model,
+    model: modelLabel.value?.name ?? "",
+    effort: modelLabel.value?.effort ?? null,
+    reference: modelLabel.value?.reference ?? "",
     tokens: total,
     cost: message.cost ?? 0,
     created: message.time?.created,
@@ -178,7 +202,13 @@ const shellExit = computed(() => {
     <div v-if="meta && !streaming && shortcutsVisible" class="meta" :title="meta.model">
       <div class="meta-inner">
         <div v-if="meta.created" class="meta-row meta-datetime">{{ formatDateTime(meta.created) }}</div>
-        <div class="meta-model">{{ meta.model }}</div>
+        <div class="meta-model-group" :title="meta.reference">
+          <span class="meta-model">{{ meta.model }}</span>
+          <template v-if="meta.effort">
+            <span class="meta-divider" aria-hidden="true"></span>
+            <span class="meta-effort">{{ meta.effort }}</span>
+          </template>
+        </div>
         <div v-if="meta.tokens" class="meta-row">{{ formatTokens(meta.tokens) }} tokens</div>
         <div v-if="meta.cost" class="meta-row">{{ formatCost(meta.cost) }}</div>
       </div>
@@ -388,6 +418,17 @@ const shellExit = computed(() => {
   line-height: 1.5;
   color: var(--text-faint);
 }
+/* The model and the effort it ran with, grouped the way the composer groups
+   them, so the same two settings read the same in both places. */
+.meta-model-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
 .meta-model {
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -395,6 +436,18 @@ const shellExit = computed(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.meta-divider {
+  flex: none;
+  width: 1px;
+  height: 10px;
+  background: var(--border);
+}
+.meta-effort {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
 }
 .meta-row {
   white-space: nowrap;
