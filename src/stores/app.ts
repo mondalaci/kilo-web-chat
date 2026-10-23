@@ -10,9 +10,11 @@ import { loadRuntimeConfig } from "./runtimeConfig"
 import { toModelRef, useServer } from "./server"
 import { useSessions } from "./sessions"
 import {
+  clearProjectParam,
   clearPromptParams,
   readAgentParam,
   readAutoSubmitParam,
+  readProjectParam,
   readQueryParam,
   readSessionParam,
   writeSessionParam,
@@ -47,10 +49,13 @@ export function useApp() {
 
     try {
       const origin = connection.connected.value?.origin ?? info.origin
-      // Fall back to the server's own default location when no project has been
-      // chosen for this server yet.
+      // A `?project=` link (the launcher's vocab shortcut) scopes this visit to
+      // that project without changing the project the app remembers. Fall back to
+      // the project chosen for this server, then to the server's own default.
+      const linked = readProjectParam()
+      if (linked) clearProjectParam()
       const saved = server.savedDirectory(origin)
-      const directory = saved ?? (await client.locationInfo().catch(() => null))?.directory
+      const directory = linked ?? saved ?? (await client.locationInfo().catch(() => null))?.directory
       await server.load(client, origin, directory)
       await sessions.load(client, server.directory.value)
       live.start(client, server.directory.value)

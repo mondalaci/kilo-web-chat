@@ -21,6 +21,16 @@ export function readAgentParam(): string | null {
   return readParam("agent")
 }
 
+/**
+ * Project (location directory) to open, from `?project=`.
+ *
+ * One-time, like `?query=`: a launcher shortcut uses it to drop the app into a
+ * project for one visit, without moving the project the app remembers.
+ */
+export function readProjectParam(): string | null {
+  return readParam("project")
+}
+
 /** Whether the initial query should be sent automatically, from `?submit=`. */
 export function readAutoSubmitParam(): boolean {
   const value = readParam("submit")
@@ -31,11 +41,18 @@ export function readAutoSubmitParam(): boolean {
 
 /** Drop one-time prompt params so a reload does not resend the query. */
 export function clearPromptParams() {
+  dropParams(["query", "agent", "submit"])
+}
+
+/** Drop the one-time `?project=` so a reload returns to the remembered project. */
+export function clearProjectParam() {
+  dropParams(["project"])
+}
+
+function dropParams(names: string[]) {
   try {
     const url = new URL(window.location.href)
-    for (const name of ["query", "agent", "submit"]) {
-      url.searchParams.delete(name)
-    }
+    for (const name of names) url.searchParams.delete(name)
     history.replaceState(history.state, "", url.toString())
   } catch {
     /* history unavailable */
