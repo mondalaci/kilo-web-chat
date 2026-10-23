@@ -21,7 +21,7 @@ import {
 import Spinner from "./Spinner.vue"
 import ProjectSelector from "./ProjectSelector.vue"
 import SidebarSearch from "./SidebarSearch.vue"
-import ToolsRow from "./ToolsRow.vue"
+import { BRAND_LETTER } from "@/brand"
 import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
 import { theme, toggleTheme } from "@/theme"
@@ -167,7 +167,7 @@ function onSessionsKeydown(event: KeyboardEvent) {
     <SidebarSearch v-if="searchOpen" />
     <template v-else>
     <header class="head">
-      <span class="logo">K</span>
+      <span class="logo">{{ BRAND_LETTER }}</span>
       <ProjectSelector />
       <button class="icon search-btn" title="Search conversations (Alt+F)" @click="openSearch()">
         <Search :size="16" />
@@ -188,7 +188,7 @@ function onSessionsKeydown(event: KeyboardEvent) {
         class="session"
         :class="{ active: session.id === currentID, 'kb-active': index === navIndex }"
         @click="selectSession(session.id)"
-        @dblclick="startRename(session.id, session.title)"
+        @dblclick="startRename(session.id, session.title ?? '')"
       >
         <input
           v-if="editingID === session.id"
@@ -210,7 +210,7 @@ function onSessionsKeydown(event: KeyboardEvent) {
           </DropdownMenuTrigger>
           <DropdownMenuPortal>
             <DropdownMenuContent class="kilo-menu" :side-offset="4" align="start">
-              <DropdownMenuItem class="kilo-menu-item" @select="startRename(session.id, session.title)">
+              <DropdownMenuItem class="kilo-menu-item" @select="startRename(session.id, session.title ?? '')">
                 <Pencil :size="14" /> Rename
               </DropdownMenuItem>
               <DropdownMenuSeparator class="kilo-menu-sep" />
@@ -225,8 +225,6 @@ function onSessionsKeydown(event: KeyboardEvent) {
       </nav>
       <kbd v-if="shortcutsVisible" class="kbd floating">S</kbd>
     </div>
-
-    <ToolsRow />
 
     <footer class="foot">
       <div class="conn" :class="connectionState" :title="connectError ?? connected?.origin">

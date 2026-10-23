@@ -1,13 +1,13 @@
-import type { Credentials } from "@/api/client"
+import type { Credentials, PromptFileInput } from "@/api/client"
 import type { InstanceInfo } from "@/api/discovery"
+import type { FormAnswer, FormInfo, Model } from "@/api/types"
 import { useChat } from "./chat"
 import { useConnection } from "./connection"
 import { draft, requestComposerFocus } from "./draft"
 import { useLive } from "./live"
 import { loadRuntimeConfig } from "./runtimeConfig"
-import { useServer } from "./server"
+import { toModelRef, useServer } from "./server"
 import { useSessions } from "./sessions"
-import { useTools } from "./tools"
 import {
   clearPromptParams,
   readAgentParam,
@@ -17,13 +17,19 @@ import {
   writeSessionParam,
 } from "@/utils/url"
 
+/** A chat link that reopens this session in the current UI. */
+export function sessionURL(sessionID: string): string {
+  const url = new URL(window.location.href)
+  url.searchParams.set("session", sessionID)
+  return url.toString()
+}
+
 export function useApp() {
   const connection = useConnection()
   const server = useServer()
   const sessions = useSessions()
   const chat = useChat()
   const live = useLive()
-  const tools = useTools()
 
   async function connect(info: InstanceInfo, credentials?: Credentials) {
     live.stop()
@@ -38,14 +44,18 @@ export function useApp() {
     if (!ok || !client) return false
 
     try {
-    const origin = connection.connected.value?.origin ?? info.origin
-    await server.load(client, origin, server.savedDirectory(origin))
-    await sessions.load(client, server.directory.value)
-    await live.start(client, server.directory.value)
-    await openSessionFromUrl()
-    await applyRuntimeDefaults()
-    await applyLinkParams()
-    return true
+      const origin = connection.connected.value?.origin ?? info.origin
+      // Fall back to the server's own default location when no project has been
+      // chosen for this server yet.
+      const saved = server.savedDirectory(origin)
+      const directory = saved ?? (await client.locationInfo().catch(() => null))?.directory
+      await server.load(client, origin, directory)
+      await sessions.load(client, server.directory.value)
+      live.start(client, server.directory.value)
+      await openSessionFromUrl()
+      await applyRuntimeDefaults()
+      await applyLinkParams()
+      return true
     } catch (error) {
       live.stop()
       chat.reset()
@@ -70,10 +80,12 @@ export function useApp() {
     if (!client) return
     sessions.currentID.value = sessionID
     writeSessionParam(sessionID, readSessionParam() === sessionID)
-    // Refresh the session info so `current` carries fields the list omits
-    // (notably `share`), which the header share/unshare toggle depends on.
-    const info = await client.getSession(sessionID, { directory: server.directory.value }).catch(() => null)
-    if (info) sessions.upsert(info)
+    // Refresh the session info so the header reflects fields the list omits.
+    const info = await client.getSession(sessionID).catch(() => null)
+    if (info) {
+      sessions.upsert(info)
+      server.applySession(info)
+    }
     await chat.open(client, sessionID, server.directory.value)
   }
 
@@ -83,7 +95,7 @@ export function useApp() {
     if (!client) return false
     const info = await client.getSession(sessionID).catch(() => null)
     if (!info) return false
-    const directory = info.directory
+    const directory = info.location?.directory
     if (directory && directory !== server.directory.value) await switchProject(directory)
     await selectSession(sessionID)
     return true
@@ -96,14 +108,14 @@ export function useApp() {
   }
 
   /**
-   * Apply the runtime config's `defaultAgent` (from `kilo-web-chat.json`) once
-   * the agent list is known. It overrides the last-used saved agent, but a
+   * Apply the runtime config's `defaultAgent` (from `opencode-web-chat.json`)
+   * once the agent list is known. It overrides the last-used saved agent, but a
    * `?agent=` GET param applied afterwards still takes precedence.
    */
   async function applyRuntimeDefaults() {
     const { defaultAgent } = await loadRuntimeConfig()
-    if (defaultAgent && server.modes.value.some((mode) => mode.name === defaultAgent)) {
-      server.selectedAgent.value = defaultAgent
+    if (defaultAgent && server.modes.value.some((agent) => agent.id === defaultAgent)) {
+      await setAgent(defaultAgent)
     }
   }
 
@@ -116,8 +128,8 @@ export function useApp() {
    */
   async function applyLinkParams() {
     const agent = readAgentParam()
-    if (agent && server.modes.value.some((mode) => mode.name === agent)) {
-      server.selectedAgent.value = agent
+    if (agent && server.modes.value.some((item) => item.id === agent)) {
+      await setAgent(agent)
     }
 
     const query = readQueryParam()
@@ -131,18 +143,20 @@ export function useApp() {
     draft.value = ""
   }
 
-  /** Switch the active project (directory) and reload everything scoped to it. */
+  /** Switch the active project (location) and reload everything scoped to it. */
   async function switchProject(directory: string) {
     const client = connection.client.value
     if (!client) return
     if (server.directory.value === directory) return
-    live.stop()
     chat.reset()
     sessions.reset()
+    // The open chat (if any) belongs to the previous project; drop it from the
+    // URL too so a reload does not jump straight back to it.
+    writeSessionParam(null)
     server.setDirectory(directory)
     await server.load(client, connection.connected.value?.origin ?? "", directory)
     await sessions.load(client, server.directory.value)
-    await live.start(client, server.directory.value)
+    live.setDirectory(server.directory.value)
   }
 
   async function newChat() {
@@ -158,9 +172,41 @@ export function useApp() {
     return session
   }
 
-  type FilePartInput = { type: "file"; mime: string; url: string; filename?: string }
+  /**
+   * Select an agent. When a chat is open the choice is applied to that session
+   * (v2 keeps agent/model on the session, not on each message).
+   */
+  async function setAgent(name: string) {
+    server.setAgentLocal(name)
+    const client = connection.client.value
+    const sessionID = sessions.currentID.value
+    if (!client || !sessionID) return
+    await client.switchAgent(sessionID, name).catch(() => undefined)
+    const info = sessions.sessions.value.find((item) => item.id === sessionID)
+    if (info) sessions.upsert({ ...info, agent: name })
+  }
 
-async function sendMessage(text: string, files: FilePartInput[] = []) {
+  /** Select a model (optionally with a variant), applying it to the open chat. */
+  async function setModel(model: Model | { providerID: string; modelID?: string; id?: string; variant?: string }, variant?: string) {
+    const ref = toModelRef(model as Model)
+    const next = variant ? { ...ref, variant } : ref
+    server.setModelLocal(next)
+    const client = connection.client.value
+    const sessionID = sessions.currentID.value
+    if (!client || !sessionID) return
+    await client.switchModel(sessionID, next).catch(() => undefined)
+    const info = sessions.sessions.value.find((item) => item.id === sessionID)
+    if (info) sessions.upsert({ ...info, model: next })
+  }
+
+  /** Switch the reasoning-effort variant of the current model. */
+  async function setVariant(variant: string) {
+    const current = server.selectedModel.value
+    if (!current) return
+    await setModel(current, variant)
+  }
+
+  async function sendMessage(text: string, files: PromptFileInput[] = []) {
     const client = connection.client.value
     if (!client) return
     const content = text.trim()
@@ -171,31 +217,20 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
       if (!session) return
       sessionID = session.id
     }
-    const parts = [...files, ...(content ? [{ type: "text" as const, text: content }] : [])]
-    await chat.send(
-      client,
-      sessionID,
-      {
-        parts,
-        model: server.selectedModel.value,
-        agent: server.selectedAgent.value,
-        tools: tools.payload(),
-      },
-      server.directory.value,
-    )
+    await chat.send(client, sessionID, { text: content, files })
   }
 
   async function abort() {
     const client = connection.client.value
     const sessionID = sessions.currentID.value
     if (!client || !sessionID) return
-    await chat.abort(client, sessionID, server.directory.value)
+    await chat.abort(client, sessionID)
   }
 
   async function removeSession(sessionID: string) {
     const client = connection.client.value
     if (!client) return
-    await sessions.remove(client, sessionID, server.directory.value)
+    await sessions.remove(client, sessionID)
     if (!sessions.currentID.value && sessions.sorted.value[0]) {
       await selectSession(sessions.sorted.value[0].id)
     }
@@ -204,56 +239,32 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
   async function renameSession(sessionID: string, title: string) {
     const client = connection.client.value
     if (!client) return
-    await sessions.rename(client, sessionID, title, server.directory.value)
+    await sessions.rename(client, sessionID, title)
   }
 
-  /** Create/return the server-side public share link for a session. */
-  async function shareSession(sessionID: string): Promise<string | null> {
+  async function replyPermission(sessionID: string, requestID: string, decision: "once" | "always" | "reject") {
+    const client = connection.client.value
+    if (!client) return
+    await chat.replyPermission(client, requestID, sessionID, decision)
+  }
+
+  async function replyForm(form: FormInfo, answer: FormAnswer) {
+    const client = connection.client.value
+    if (!client) return
+    await chat.replyForm(client, form.sessionID, form.id, answer)
+  }
+
+  async function cancelForm(form: FormInfo) {
+    const client = connection.client.value
+    if (!client) return
+    await chat.cancelForm(client, form.sessionID, form.id)
+  }
+
+  /** The openai-compatible key the server holds for an integration (TTS). */
+  async function integrationKey(integrationID: string): Promise<string | null> {
     const client = connection.client.value
     if (!client) return null
-    try {
-      const info = await client.shareSession(sessionID, { directory: server.directory.value })
-      if (info) sessions.upsert(info)
-      return info?.share?.url ?? null
-    } catch {
-      return null
-    }
-  }
-
-  /** Revoke a session's public share link. */
-  async function unshareSession(sessionID: string): Promise<boolean> {
-    const client = connection.client.value
-    if (!client) return false
-    try {
-      const info = await client.unshareSession(sessionID, { directory: server.directory.value })
-      // The response omits `share`; clear it explicitly so the toggle flips back.
-      if (info) sessions.upsert({ ...info, share: undefined })
-      else {
-        const existing = sessions.sessions.value.find((item) => item.id === sessionID)
-        if (existing) sessions.upsert({ ...existing, share: undefined })
-      }
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  async function replyPermission(requestID: string, reply: "once" | "always" | "reject") {
-    const client = connection.client.value
-    if (!client) return
-    await chat.replyPermission(client, requestID, reply, server.directory.value)
-  }
-
-  async function replyQuestion(requestID: string, answers: string[][]) {
-    const client = connection.client.value
-    if (!client) return
-    await chat.replyQuestion(client, requestID, answers, server.directory.value)
-  }
-
-  async function rejectQuestion(requestID: string) {
-    const client = connection.client.value
-    if (!client) return
-    await chat.rejectQuestion(client, requestID, server.directory.value)
+    return client.credentialKey(integrationID)
   }
 
   return {
@@ -273,11 +284,13 @@ async function sendMessage(text: string, files: FilePartInput[] = []) {
     abort,
     removeSession,
     renameSession,
-    shareSession,
-    unshareSession,
+    setAgent,
+    setModel,
+    setVariant,
     replyPermission,
-    replyQuestion,
-    rejectQuestion,
+    replyForm,
+    cancelForm,
+    integrationKey,
   }
 }
 

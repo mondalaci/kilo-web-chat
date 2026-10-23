@@ -1,4 +1,8 @@
-import type { TimeRange } from "@/api/types"
+/** The created/updated span of a conversation. */
+export interface TimeSpan {
+  created?: number
+  updated?: number
+}
 
 /** A sortable local calendar-day key (year*10000 + month*100 + day). */
 function calendarDay(timestamp: number): number {
@@ -22,7 +26,7 @@ function formatStamp(timestamp: number, withTime: boolean): string {
  * covers more than one calendar day, in which case the date range is shown.
  * When `withTime` is set the clock time is included.
  */
-export function formatConversationDate(range?: TimeRange, withTime = false): string {
+export function formatConversationDate(range?: TimeSpan, withTime = false): string {
   const start = range?.created
   if (!start) return ""
   const end = range?.updated ?? start
@@ -31,7 +35,7 @@ export function formatConversationDate(range?: TimeRange, withTime = false): str
 }
 
 /** The full date-time span of a conversation, always including clock times. */
-export function formatConversationDateTime(range?: TimeRange): string {
+export function formatConversationDateTime(range?: TimeSpan): string {
   const start = range?.created
   if (!start) return ""
   const end = range?.updated ?? start
@@ -77,20 +81,25 @@ export function toolSummary(tool: string, input: Record<string, unknown> | undef
   if (!input) return ""
   const value = (key: string) => (typeof input[key] === "string" ? (input[key] as string) : undefined)
   switch (tool) {
+    case "shell":
     case "bash":
       return value("command") ?? ""
     case "read":
     case "write":
     case "edit":
     case "patch":
+    case "apply_patch":
+    case "list":
       return value("filePath") ?? value("path") ?? ""
     case "glob":
     case "grep":
-      return value("pattern") ?? ""
+      return value("pattern") ?? value("query") ?? ""
     case "webfetch":
       return value("url") ?? ""
     case "task":
-      return value("description") ?? ""
+      return value("description") ?? value("prompt") ?? ""
+    case "question":
+      return value("question") ?? value("header") ?? ""
     default: {
       const first = Object.values(input).find((item) => typeof item === "string")
       return (first as string) ?? ""

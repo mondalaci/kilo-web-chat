@@ -1,77 +1,150 @@
 <script setup lang="ts">
 import { computed } from "vue"
-import { User } from "lucide-vue-next"
-import type { FilePart, MessageWithParts, Part, TextPart, ToolPart } from "@/api/types"
+import { Terminal, User } from "lucide-vue-next"
+import type {
+  AssistantContent,
+  AssistantTool,
+  SessionMessageAssistant,
+  SessionMessageInfo,
+  SessionMessageShell,
+} from "@/api/types"
 import { formatCost, formatDateTime, formatTokens } from "@/utils/format"
+import { attachmentView } from "@/utils/file"
 import { composedMessage } from "@/utils/compose"
 import { shortcutsVisible } from "@/stores/shortcuts"
+import { BRAND_LETTER } from "@/brand"
 import Markdown from "./Markdown.vue"
 import PartFile from "./PartFile.vue"
 import PartMessageCompose from "./PartMessageCompose.vue"
 import PartReasoning from "./PartReasoning.vue"
 import PartTool from "./PartTool.vue"
 
-const props = defineProps<{ message: MessageWithParts; streaming?: boolean }>()
+const props = defineProps<{ message: SessionMessageInfo; streaming?: boolean }>()
 
-const isUser = computed(() => props.message.info.role === "user")
+const kind = computed(() => props.message.type)
+const isUser = computed(() => kind.value === "user")
+const isAssistant = computed(() => kind.value === "assistant")
 
-const contentParts = computed<Part[]>(() =>
-  props.message.parts.filter((part) => {
-    if (part.type === "text") {
-      const text = part as TextPart
-      if (text.synthetic || text.ignored || !text.text.trim()) return false
-    }
-    return true
-  }),
-)
+/**
+ * Message types that only record state (the agent/model switched away, the
+ * session went idle) carry nothing to display, so they are skipped entirely
+ * instead of leaving an empty row behind.
+ */
+const renders = computed(() => !["idle", "agent-switched", "model-switched", "location-switched"].includes(kind.value))
 
-const errorMessage = computed(() => {
-  const info = props.message.info
-  if (info.role !== "assistant" || !info.error) return null
-  const error = info.error as { data?: { message?: string }; name?: string }
-  return error.data?.message ?? error.name ?? "The model returned an error."
+const assistant = computed(() => (isAssistant.value ? (props.message as SessionMessageAssistant) : null))
+
+/** Assistant output blocks with empty text skipped (a streamed blank first frame). */
+const content = computed<AssistantContent[]>(() => {
+  const message = assistant.value
+  if (!message) return []
+  return message.content.filter((block) => block.type !== "text" || block.text.trim())
 })
 
-const meta = computed(() => {
-  const info = props.message.info
-  if (info.role !== "assistant") return null
-  const tokens = info.tokens
-  const total = tokens ? (tokens.input ?? 0) + (tokens.output ?? 0) + (tokens.reasoning ?? 0) : 0
-  return {
-    model: info.modelID,
-    tokens: total,
-    cost: info.cost ?? 0,
-    created: info.time?.created,
+const userText = computed(() => (props.message.type === "user" ? props.message.text : ""))
+const userFiles = computed(() =>
+  props.message.type === "user" ? (props.message.files ?? []).map(attachmentView) : [],
+)
+
+const shell = computed<SessionMessageShell | null>(() =>
+  props.message.type === "shell" ? (props.message as SessionMessageShell) : null,
+)
+
+const note = computed(() => {
+  switch (props.message.type) {
+    case "system":
+    case "synthetic":
+      return props.message.text
+    case "skill":
+      return `Activated skill ${props.message.name}`
+    default:
+      return null
   }
 })
 
-function isCompose(part: Part): boolean {
-  return part.type === "tool" && composedMessage(part as ToolPart) !== null
+const compaction = computed(() => {
+  if (props.message.type !== "compaction") return null
+  const status = props.message.status
+  const summary = "summary" in props.message ? props.message.summary : ""
+  const failure = "error" in props.message ? props.message.error?.message : ""
+  return { status, summary, failure }
+})
+
+const errorMessage = computed(() => {
+  const message = assistant.value
+  if (!message?.error) return null
+  return message.error.message || "The model returned an error."
+})
+
+const meta = computed(() => {
+  const message = assistant.value
+  if (!message) return null
+  const tokens = message.tokens
+  const total = tokens ? (tokens.input ?? 0) + (tokens.output ?? 0) + (tokens.reasoning ?? 0) : 0
+  const model = message.model?.id ?? ""
+  return {
+    model,
+    tokens: total,
+    cost: message.cost ?? 0,
+    created: message.time?.created,
+  }
+})
+
+function isCompose(part: AssistantContent): boolean {
+  return part.type === "tool" && composedMessage(part as AssistantTool) !== null
 }
+
+const shellExit = computed(() => {
+  const value = shell.value?.exit
+  if (value === undefined) return ""
+  return typeof value === "number" ? `exit ${value}` : String(value)
+})
 </script>
 
 <template>
-  <div class="message" :class="isUser ? 'user' : 'assistant'">
-    <div v-if="!isUser" class="avatar" aria-hidden="true">K</div>
-    <div class="bubble" :class="isUser ? 'user-bubble' : 'assistant-bubble'">
-      <template v-for="part in contentParts" :key="part.id">
-        <Markdown v-if="part.type === 'text' && !isUser" :text="(part as TextPart).text" :streaming="streaming" />
-        <p v-else-if="part.type === 'text' && isUser" class="user-text">{{ (part as TextPart).text }}</p>
+  <div v-if="renders" class="message" :class="isUser ? 'user' : isAssistant ? 'assistant' : 'note-row'">
+    <div v-if="isAssistant" class="avatar" aria-hidden="true">{{ BRAND_LETTER }}</div>
 
-        <PartReasoning v-else-if="part.type === 'reasoning' && !isUser" :part="part" />
-        <template v-else-if="part.type === 'tool' && !isUser">
-          <PartMessageCompose v-if="isCompose(part)" :part="part" />
-          <PartTool v-else :part="part" />
+    <div
+      v-if="isUser"
+      class="bubble user-bubble"
+    >
+      <p v-if="userText" class="user-text">{{ userText }}</p>
+      <PartFile v-for="(file, index) in userFiles" :key="index" :file="file" />
+    </div>
+
+    <div v-else-if="isAssistant" class="bubble assistant-bubble">
+      <template v-for="(block, index) in content" :key="index">
+        <Markdown v-if="block.type === 'text'" :text="block.text" :streaming="streaming" />
+        <PartReasoning v-else-if="block.type === 'reasoning'" :part="block" />
+        <template v-else-if="block.type === 'tool'">
+          <PartMessageCompose v-if="isCompose(block)" :part="block" />
+          <PartTool v-else :part="block" />
         </template>
-
-        <PartFile v-else-if="part.type === 'file'" :part="part as FilePart" />
       </template>
 
-      <div v-if="streaming && !isUser" class="caret"></div>
-
+      <div v-if="streaming" class="caret"></div>
       <div v-if="errorMessage" class="error">{{ errorMessage }}</div>
     </div>
+
+    <div v-else-if="shell" class="shell-row">
+      <Terminal :size="13" class="shell-icon" />
+      <code class="shell-command">{{ shell.command }}</code>
+      <span class="shell-status">{{ shell.status }}{{ shellExit ? ` · ${shellExit}` : "" }}</span>
+      <pre v-if="shell.output?.output" class="shell-output">{{ shell.output.output }}</pre>
+    </div>
+
+    <div v-else-if="compaction" class="compaction">
+      <span class="compaction-label">
+        {{ compaction.status === "running" ? "Compacting conversation…" : "Conversation compacted" }}
+      </span>
+      <span v-if="compaction.failure" class="compaction-error">{{ compaction.failure }}</span>
+    </div>
+
+    <p v-else-if="note" class="note">{{ note }}</p>
+
     <div v-if="isUser" class="avatar user-avatar" aria-hidden="true"><User :size="15" /></div>
+
     <div v-if="meta && !streaming && shortcutsVisible" class="meta" :title="meta.model">
       <div class="meta-inner">
         <div v-if="meta.created" class="meta-row meta-datetime">{{ formatDateTime(meta.created) }}</div>
@@ -141,9 +214,9 @@ function isCompose(part: Part): boolean {
   height: 15px;
   background: var(--text);
   vertical-align: text-bottom;
-  animation: kilo-blink 1s step-start infinite;
+  animation: opencode-blink 1s step-start infinite;
 }
-@keyframes kilo-blink {
+@keyframes opencode-blink {
   50% {
     opacity: 0;
   }
@@ -157,8 +230,71 @@ function isCompose(part: Part): boolean {
   color: var(--danger);
   font-size: 13px;
 }
-/* Full-height gutter; the inner block sticks below the header while the
-   message is in view (native sticky, so it never jitters on scroll). */
+/* Shell commands run from the composer are shown as a compact card. */
+.shell-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-left: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  font-size: 12.5px;
+}
+.shell-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+.shell-command {
+  font-family: var(--font-mono);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.shell-status {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+.shell-output {
+  flex-basis: 100%;
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.note-row {
+  justify-content: center;
+}
+.compaction {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px auto;
+  padding: 4px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.compaction-error {
+  color: var(--danger);
+}
+.note {
+  margin: 0;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-faint);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .meta {
   position: absolute;
   top: 0;
@@ -189,7 +325,6 @@ function isCompose(part: Part): boolean {
 .meta-datetime {
   font-variant-numeric: tabular-nums;
 }
-/* On narrower screens there is no side gutter, so overlay the info on hover. */
 @media (max-width: 1360px) {
   .meta {
     top: 6px;

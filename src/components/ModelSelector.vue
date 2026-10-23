@@ -21,10 +21,13 @@ import {
 } from "reka-ui"
 import { Brain, Check, ChevronDown, Search } from "lucide-vue-next"
 import type { Model } from "@/api/types"
-import { useServer } from "@/stores/server"
+import { baseCost, isFreeModel } from "@/api/types"
+import { useApp } from "@/stores/app"
+import { modelCostLabel, useServer } from "@/stores/server"
 import { openRequests, shortcutsVisible } from "@/stores/shortcuts"
 
-const { providerGroups, providers, selectedModel, setModel } = useServer()
+const { setModel } = useApp()
+const { providerGroups, models, selectedModel } = useServer()
 
 const open = ref(false)
 const query = ref("")
@@ -42,11 +45,13 @@ function parseKey(key: string) {
 }
 
 const selectedKey = computed<string>({
-  get: () => (selectedModel.value ? modelKey(selectedModel.value.providerID, selectedModel.value.modelID) : ""),
+  get: () => (selectedModel.value ? modelKey(selectedModel.value.providerID, selectedModel.value.id) : ""),
   set: (key) => {
     const parsed = parseKey(key)
     if (!parsed) return
-    setModel({ providerID: parsed.providerID, modelID: parsed.modelID })
+    const model = models.value.find((item) => item.providerID === parsed.providerID && item.id === parsed.modelID)
+    if (!model) return
+    void setModel(model)
     open.value = false
   },
 })
@@ -54,8 +59,7 @@ const selectedKey = computed<string>({
 function displayValue(key: string) {
   const parsed = parseKey(key)
   if (!parsed) return ""
-  const provider = providers.value.find((item) => item.id === parsed.providerID)
-  return provider?.models?.[parsed.modelID]?.name ?? parsed.modelID
+  return models.value.find((item) => item.providerID === parsed.providerID && item.id === parsed.modelID)?.name ?? parsed.modelID
 }
 
 // The combobox input is uncontrolled: its displayed text is either the selected
@@ -100,8 +104,8 @@ watch(
 )
 
 // Keep the (uncontrolled) input showing the friendly model name. This matters
-// on first load, when the input renders its raw id before providers arrive.
-watch([providers, selectedModel], () => {
+// on first load, when the input renders its raw id before models arrive.
+watch([models, selectedModel], () => {
   if (open.value || query.value) return
   const node = inputNode()
   const name = displayValue(selectedKey.value)
@@ -148,24 +152,15 @@ const totalMatches = computed(() => filteredGroups.value.reduce((total, group) =
 const resultCount = computed(() => visibleGroups.value.reduce((total, group) => total + group.models.length, 0))
 
 function isSelected(model: Model) {
-  return selectedModel.value?.providerID === model.providerID && selectedModel.value?.modelID === model.id
+  return selectedModel.value?.providerID === model.providerID && selectedModel.value?.id === model.id
 }
 
-/** Compact USD-per-1M-token price: `$3/$15`. */
-function price(value: number) {
-  if (!value) return "0"
-  if (value >= 1) return value.toFixed(2).replace(/\.00$/, "")
-  return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")
-}
 function costLabel(model: Model) {
-  if (model.isFree) return "free"
-  const cost = model.cost
-  if (!cost || (!cost.input && !cost.output)) return ""
-  return `$${price(cost.input)}/$${price(cost.output)}`
+  return modelCostLabel(model)
 }
 function costTitle(model: Model) {
-  if (model.isFree) return "Free"
-  const cost = model.cost
+  if (isFreeModel(model)) return "Free"
+  const cost = baseCost(model)
   if (!cost) return ""
   return `Input $${cost.input} / 1M tokens · Output $${cost.output} / 1M tokens`
 }
@@ -176,8 +171,8 @@ function costTitle(model: Model) {
  */
 function costColor(model: Model): string | undefined {
   const free = "hsl(142 60% 45%)"
-  if (model.isFree) return free
-  const cost = model.cost
+  if (isFreeModel(model)) return free
+  const cost = baseCost(model)
   if (!cost) return undefined
   const value = Math.max(cost.input || 0, cost.output || 0)
   if (value <= 0) return free
@@ -186,6 +181,11 @@ function costColor(model: Model): string | undefined {
   const t = Math.min(1, Math.max(0, (Math.log10(value) - min) / (max - min)))
   const hue = 142 - 142 * t
   return `hsl(${Math.round(hue)} 70% 48%)`
+}
+
+/** The reasoning-effort variants a model exposes, e.g. `high`/`low`. */
+function variantCount(model: Model): number {
+  return (model.variants ?? []).filter((variant) => variant.id && variant.id !== "default").length
 }
 </script>
 
@@ -251,7 +251,9 @@ function costColor(model: Model): string | undefined {
                     >{{ costLabel(model) }}</span
                   >
                   <span class="kilo-model-badges">
-                    <span v-if="model.capabilities?.reasoning" class="kilo-model-tag is-reasoning">reasoning</span>
+                    <span v-if="variantCount(model)" class="kilo-model-tag is-reasoning" title="Extra effort/reasoning variants">
+                      {{ variantCount(model) }} variants
+                    </span>
                   </span>
                   <ComboboxItemIndicator class="kilo-model-check"><Check :size="15" /></ComboboxItemIndicator>
                 </ComboboxItem>

@@ -1,111 +1,196 @@
 import { computed, ref } from "vue"
-import type { ServerClient } from "@/api/client"
+import type { ServerClient, PromptFileInput } from "@/api/client"
 import type {
-  MessageInfo,
-  MessageWithParts,
-  ModelRef,
-  Part,
+  AssistantContent,
+  AssistantReasoning,
+  AssistantText,
+  AssistantTool,
+  FormAnswer,
+  FormInfo,
   PermissionRequest,
-  QuestionRequest,
+  SessionMessageAssistant,
+  SessionMessageInfo,
   SessionStatus,
-  Todo,
+  V2Event,
 } from "@/api/types"
 
-interface PromptInput {
-  parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; url: string; filename?: string }>
-  model?: ModelRef | null
-  agent?: string
-  variant?: string
-  tools?: Record<string, boolean>
-}
+/** How long streaming updates are coalesced before a full reconcile. */
+const RECONCILE_DEBOUNCE_MS = 200
 
-const messages = ref<MessageWithParts[]>([])
+const messages = ref<SessionMessageInfo[]>([])
 const status = ref<SessionStatus>({ type: "idle" })
 const loading = ref(false)
 const sending = ref(false)
 const error = ref<string | null>(null)
 const permissions = ref<PermissionRequest[]>([])
-const questions = ref<QuestionRequest[]>([])
-const todos = ref<Todo[]>([])
+const forms = ref<FormInfo[]>([])
 const currentSessionID = ref<string | null>(null)
 
 /** Bumped on every user send so the view forces a re-pin and scroll to bottom. */
 const scrollToBottomRequest = ref(0)
 
-/** Parts that arrived before their parent message (rare, but handled). */
-const orphanParts = new Map<string, Part[]>()
-
-function sortMessages() {
-  messages.value = [...messages.value].sort(
-    (a, b) => (a.info.time?.created ?? 0) - (b.info.time?.created ?? 0),
-  )
+/**
+ * Live content assembly for streaming assistant messages.
+ *
+ * v2 streams content *block* by block: `session.text.started(ordinal)` opens a
+ * text block, `session.text.delta(ordinal, delta)` appends to it and
+ * `session.text.ended(ordinal, text)` finalizes it. Reasoning and tool calls
+ * follow the same shape. This mirrors the server's own `content` array so the
+ * view can render partial output, and a debounced reconcile replaces the
+ * assembled value with the authoritative one at the end of each step.
+ */
+interface LiveContent {
+  content: AssistantContent[]
+  text: Map<number, AssistantText>
+  reasoning: Map<number, AssistantReasoning>
+  tools: Map<string, AssistantTool>
 }
+
+const live = new Map<string, LiveContent>()
+
+let reconcileTimer: ReturnType<typeof setTimeout> | null = null
+let reconcileContext: { client: ServerClient; sessionID: string } | null = null
 
 function findMessage(messageID: string) {
-  return messages.value.find((item) => item.info.id === messageID)
+  return messages.value.find((item) => item.id === messageID) as SessionMessageAssistant | undefined
 }
 
-function upsertInfo(info: MessageInfo) {
-  const existing = findMessage(info.id)
-  if (existing) {
-    existing.info = { ...existing.info, ...info } as MessageInfo
-    return existing
+/** Index a message's persisted content so later deltas update the right block. */
+function seed(messagesToSeed: SessionMessageInfo[]) {
+  for (const message of messagesToSeed) {
+    if (message.type !== "assistant") continue
+    const entry: LiveContent = { content: message.content, text: new Map(), reasoning: new Map(), tools: new Map() }
+    let textOrdinal = 0
+    let reasoningOrdinal = 0
+    for (const block of message.content) {
+      if (block.type === "text") entry.text.set(textOrdinal++, block)
+      else if (block.type === "reasoning") entry.reasoning.set(reasoningOrdinal++, block)
+      else if (block.type === "tool") entry.tools.set(block.id, block)
+    }
+    live.set(message.id, entry)
   }
-  const entry: MessageWithParts = { info, parts: [] }
-  const orphans = orphanParts.get(info.id)
-  if (orphans) {
-    entry.parts = orphans
-    orphanParts.delete(info.id)
-  }
-  messages.value = [...messages.value, entry]
-  sortMessages()
-  return entry
 }
 
-function upsertPart(part: Part) {
-  const entry = findMessage(part.messageID)
-  if (!entry) {
-    const list = orphanParts.get(part.messageID) ?? []
-    const index = list.findIndex((item) => item.id === part.id)
-    if (index === -1) list.push(part)
-    else list[index] = { ...list[index], ...part }
-    orphanParts.set(part.messageID, list)
-    return
+function liveFor(messageID: string): LiveContent | undefined {
+  const existing = live.get(messageID)
+  if (existing) return existing
+  const message = findMessage(messageID)
+  if (!message) return undefined
+  seed([message])
+  return live.get(messageID)
+}
+
+/** Create the assistant message a stream belongs to, if it is not known yet. */
+function ensureAssistant(messageID: string, agent?: string, model?: SessionMessageAssistant["model"]) {
+  const existing = findMessage(messageID)
+  if (existing) return existing
+  const message: SessionMessageAssistant = {
+    id: messageID,
+    time: { created: Date.now() },
+    type: "assistant",
+    agent: agent ?? "",
+    model: model ?? { id: "", providerID: "" },
+    content: [],
   }
-  const index = entry.parts.findIndex((item) => item.id === part.id)
-  if (index === -1) entry.parts = [...entry.parts, part]
-  else entry.parts = entry.parts.map((item, i) => (i === index ? { ...item, ...part } : item))
+  messages.value = [...messages.value, message]
+  live.set(messageID, { content: message.content, text: new Map(), reasoning: new Map(), tools: new Map() })
+  return message
+}
+
+function pushBlock(message: SessionMessageAssistant, block: AssistantContent) {
+  // `content` is the array the live entry points at, so a push is enough.
+  message.content.push(block)
 }
 
 /**
- * Append an incremental streamed chunk (`message.part.delta`) to a part's text
- * or reasoning field, creating the part if it does not exist yet.
+ * The arguments of a tool call as an object. While the call is still streaming
+ * they arrive as a partial JSON string, which may not parse yet.
  */
-function appendDelta(messageID: string, partID: string, sessionID: string, field: string, delta: string) {
-  const entry = findMessage(messageID)
-  if (!entry) {
-    const list = orphanParts.get(messageID) ?? []
-    const index = list.findIndex((item) => item.id === partID)
-    if (index === -1) {
-      list.push({ id: partID, sessionID, messageID, type: field === "reasoning" ? "reasoning" : "text", [field]: delta } as unknown as Part)
-    } else {
-      const current = list[index] as Record<string, unknown>
-      list[index] = { ...current, [field]: String(current[field] ?? "") + delta } as unknown as Part
+type ToolInput = Extract<AssistantTool["state"], { status: "running" }>["input"]
+
+function toolInput(state: AssistantTool["state"]): ToolInput {
+  if (state.status === "streaming") {
+    try {
+      const parsed = JSON.parse(state.input)
+      return parsed && typeof parsed === "object" ? (parsed as ToolInput) : {}
+    } catch {
+      return {}
     }
-    orphanParts.set(messageID, list)
-    return
   }
-  const index = entry.parts.findIndex((item) => item.id === partID)
-  if (index === -1) {
-    entry.parts = [
-      ...entry.parts,
-      { id: partID, sessionID, messageID, type: field === "reasoning" ? "reasoning" : "text", [field]: delta } as unknown as Part,
-    ]
-  } else {
-    const current = entry.parts[index] as unknown as Record<string, unknown>
-    const next = { ...current, [field]: String(current[field] ?? "") + delta } as unknown as Part
-    entry.parts = entry.parts.map((item, i) => (i === index ? next : item))
+  return state.input as ToolInput
+}
+
+function appendText(messageID: string, ordinal: number, delta: string) {
+  const message = findMessage(messageID)
+  if (!message) return
+  const entry = liveFor(messageID) ?? { content: message.content, text: new Map(), reasoning: new Map(), tools: new Map() }
+  let block = entry.text.get(ordinal)
+  if (!block) {
+    block = { type: "text", text: "" }
+    entry.text.set(ordinal, block)
+    pushBlock(message, block)
   }
+  block.text += delta
+}
+
+function setText(messageID: string, ordinal: number, text: string) {
+  const message = findMessage(messageID)
+  if (!message) return
+  const entry = liveFor(messageID) ?? { content: message.content, text: new Map(), reasoning: new Map(), tools: new Map() }
+  let block = entry.text.get(ordinal)
+  if (!block) {
+    block = { type: "text", text: "" }
+    entry.text.set(ordinal, block)
+    pushBlock(message, block)
+  }
+  block.text = text
+}
+
+function appendReasoning(messageID: string, ordinal: number, delta: string) {
+  const message = findMessage(messageID)
+  if (!message) return
+  const entry = liveFor(messageID) ?? { content: message.content, text: new Map(), reasoning: new Map(), tools: new Map() }
+  let block = entry.reasoning.get(ordinal)
+  if (!block) {
+    block = { type: "reasoning", text: "", time: { created: Date.now() } }
+    entry.reasoning.set(ordinal, block)
+    pushBlock(message, block)
+  }
+  block.text += delta
+}
+
+function setReasoning(messageID: string, ordinal: number, text: string) {
+  const message = findMessage(messageID)
+  if (!message) return
+  const entry = liveFor(messageID) ?? { content: message.content, text: new Map(), reasoning: new Map(), tools: new Map() }
+  let block = entry.reasoning.get(ordinal)
+  if (!block) {
+    block = { type: "reasoning", text: "", time: { created: Date.now() } }
+    entry.reasoning.set(ordinal, block)
+    pushBlock(message, block)
+  }
+  block.text = text
+  block.time = { ...(block.time ?? { created: Date.now() }), completed: Date.now() }
+}
+
+function toolBlock(messageID: string, id: string, name?: string): { message: SessionMessageAssistant; block: AssistantTool } | null {
+  const message = findMessage(messageID)
+  if (!message) return null
+  const entry = liveFor(messageID) ?? { content: message.content, text: new Map(), reasoning: new Map(), tools: new Map() }
+  let block = entry.tools.get(id)
+  if (!block) {
+    block = {
+      type: "tool",
+      id,
+      name: name ?? "",
+      state: { status: "streaming", input: "" },
+      time: { created: Date.now() },
+    }
+    entry.tools.set(id, block)
+    pushBlock(message, block)
+  }
+  if (name) block.name = name
+  return { message, block }
 }
 
 export function useChat() {
@@ -114,60 +199,70 @@ export function useChat() {
   const pendingPermissions = computed(() =>
     permissions.value.filter((request) => request.sessionID === currentSessionID.value),
   )
-  const pendingQuestions = computed(() =>
-    questions.value.filter((request) => request.sessionID === currentSessionID.value),
-  )
+  const pendingForms = computed(() => forms.value.filter((form) => form.sessionID === currentSessionID.value))
 
-  async function open(client: ServerClient, sessionID: string, directory?: string) {
+  function setMessages(next: SessionMessageInfo[]) {
+    messages.value = next
+    live.clear()
+    seed(next)
+  }
+
+  async function open(client: ServerClient, sessionID: string, directory?: string | null) {
     currentSessionID.value = sessionID
     loading.value = true
     error.value = null
-    messages.value = []
-    orphanParts.clear()
-    todos.value = []
-    status.value = { type: "idle" }
+    setMessages([])
+    reconcileContext = { client, sessionID }
     try {
-      const [list, todoList, perms, questi] = await Promise.all([
-        client.messages(sessionID, { directory }),
-        client.todos(sessionID, { directory }).catch(() => [] as Todo[]),
-        client.listPermissions({ directory }).catch(() => [] as PermissionRequest[]),
-        client.listQuestions({ directory }).catch(() => [] as QuestionRequest[]),
+      const [list, perms, pendingForms, active] = await Promise.all([
+        client.allMessages(sessionID),
+        client.pendingPermissions(directory).catch(() => [] as PermissionRequest[]),
+        client.pendingForms(directory).catch(() => [] as FormInfo[]),
+        client.activeSessions().catch(() => ({} as Record<string, SessionStatus>)),
       ])
-      messages.value = list
-      todos.value = todoList
+      // Ignore a response for a session the user already navigated away from.
+      if (currentSessionID.value !== sessionID) return
+      setMessages(list)
       permissions.value = perms
-      questions.value = questi
-      // Any assistant message without a completion timestamp means the server
-      // is still working on it.
-      const streaming = list.some(
-        (item) => item.info.role === "assistant" && !(item.info as { time?: { completed?: number } }).time?.completed,
-      )
-      if (streaming) status.value = { type: "busy" }
+      forms.value = pendingForms
+      const running = active[sessionID]
+      status.value = running ?? { type: "idle" }
     } catch (err) {
-      error.value = err instanceof Error ? err.message : String(err)
+      if (currentSessionID.value === sessionID) error.value = err instanceof Error ? err.message : String(err)
     } finally {
-      loading.value = false
+      if (currentSessionID.value === sessionID) loading.value = false
     }
   }
 
-  async function send(client: ServerClient, sessionID: string, input: PromptInput, directory?: string) {
+  /** Re-fetch the open session's messages, coalescing rapid callers. */
+  function scheduleReconcile(client: ServerClient, sessionID: string) {
+    reconcileContext = { client, sessionID }
+    if (reconcileTimer) return
+    reconcileTimer = setTimeout(() => {
+      reconcileTimer = null
+      void reconcileNow()
+    }, RECONCILE_DEBOUNCE_MS)
+  }
+
+  async function reconcileNow() {
+    const context = reconcileContext
+    if (!context || context.sessionID !== currentSessionID.value) return
+    try {
+      const list = await context.client.allMessages(context.sessionID)
+      if (currentSessionID.value !== context.sessionID) return
+      setMessages(list)
+    } catch {
+      /* keep the assembled view when the reconcile fails */
+    }
+  }
+
+  async function send(client: ServerClient, sessionID: string, body: { text: string; files?: PromptFileInput[] }) {
     sending.value = true
     error.value = null
     scrollToBottomRequest.value++
+    reconcileContext = { client, sessionID }
     try {
-      await client.prompt(
-        sessionID,
-        {
-          parts: input.parts,
-          model: input.model
-            ? { providerID: input.model.providerID, modelID: input.model.modelID }
-            : undefined,
-          agent: input.agent,
-          variant: input.variant ?? input.model?.variant,
-          tools: input.tools,
-        },
-        { directory },
-      )
+      await client.prompt(sessionID, body)
       status.value = { type: "busy" }
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err)
@@ -177,140 +272,264 @@ export function useChat() {
     }
   }
 
-  async function abort(client: ServerClient, sessionID: string, directory?: string) {
-    await client.abort(sessionID, { directory })
+  async function abort(client: ServerClient, sessionID: string) {
+    await client.interrupt(sessionID)
     status.value = { type: "idle" }
   }
 
   async function replyPermission(
     client: ServerClient,
     requestID: string,
-    reply: "once" | "always" | "reject",
-    directory?: string,
+    sessionID: string,
+    decision: "once" | "always" | "reject",
   ) {
-    await client.replyPermission(requestID, reply, { directory })
+    await client.replyPermission(sessionID, requestID, decision)
     permissions.value = permissions.value.filter((item) => item.id !== requestID)
   }
 
-  async function replyQuestion(client: ServerClient, requestID: string, answers: string[][], directory?: string) {
-    await client.replyQuestion(requestID, answers, { directory })
-    questions.value = questions.value.filter((item) => item.id !== requestID)
+  async function replyForm(client: ServerClient, sessionID: string, formID: string, answer: FormAnswer) {
+    await client.replyForm(sessionID, formID, answer)
+    forms.value = forms.value.filter((item) => item.id !== formID)
   }
 
-  async function rejectQuestion(client: ServerClient, requestID: string, directory?: string) {
-    await client.rejectQuestion(requestID, { directory })
-    questions.value = questions.value.filter((item) => item.id !== requestID)
+  async function cancelForm(client: ServerClient, sessionID: string, formID: string) {
+    await client.cancelForm(sessionID, formID)
+    forms.value = forms.value.filter((item) => item.id !== formID)
   }
 
-  function applyEvent(type: string, properties: Record<string, unknown> | undefined) {
-    if (!properties) return
-    const sessionID = properties.sessionID as string | undefined
-    const isCurrent = !sessionID || sessionID === currentSessionID.value
+  function applyEvent(event: V2Event, client: ServerClient) {
+    // `session.message.content.updated` carries an authoritative content
+    // snapshot, but is not part of the generated event union yet, so it is
+    // matched defensively before the switch.
+    const type = event.type as string
+    if (type === "session.message.content.updated") {
+      const data = (event as unknown as {
+        data: { sessionID: string; messageID: string; content: AssistantContent[] }
+      }).data
+      if (data.sessionID !== currentSessionID.value) return
+      const message = findMessage(data.messageID)
+      if (message) {
+        message.content = [...data.content]
+        live.delete(data.messageID)
+        seed([message])
+      } else {
+        scheduleReconcile(client, data.sessionID)
+      }
+      return
+    }
 
-    switch (type) {
-      case "message.updated": {
-        if (!isCurrent) return
-        const info = properties.info as MessageInfo | undefined
-        if (info) upsertInfo(info)
-        break
-      }
-      case "message.removed": {
-        if (!isCurrent) return
-        const id = (properties.messageID as string) ?? (properties.info as MessageInfo | undefined)?.id
-        if (id) messages.value = messages.value.filter((item) => item.info.id !== id)
-        break
-      }
-      case "message.part.updated": {
-        if (!isCurrent) return
-        const part = properties.part as Part | undefined
-        if (part) upsertPart(part)
-        break
-      }
-      case "message.part.delta": {
-        if (!isCurrent) return
-        const messageID = properties.messageID as string
-        const partID = properties.partID as string
-        const field = (properties.field as string) || "text"
-        const delta = properties.delta as string | undefined
-        if (messageID && partID && delta != null) {
-          appendDelta(messageID, partID, properties.sessionID as string, field, delta)
-        }
-        break
-      }
-      case "message.part.removed": {
-        if (!isCurrent) return
-        const messageID = properties.messageID as string
-        const partID = properties.partID as string
-        const entry = findMessage(messageID)
-        if (entry) entry.parts = entry.parts.filter((item) => item.id !== partID)
-        break
+    switch (event.type) {
+      /* ------------------------------ lifecycle ------------------------------ */
+      case "session.execution.started": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        status.value = { type: "busy" }
+        return
       }
       case "session.status": {
-        if (!isCurrent) return
-        const next = properties.status as SessionStatus | undefined
-        if (next) status.value = next
-        break
+        if (event.data.sessionID !== currentSessionID.value) return
+        status.value = event.data.status
+        return
       }
       case "session.idle": {
-        if (!isCurrent) return
+        if (event.data.sessionID !== currentSessionID.value) return
         status.value = { type: "idle" }
-        break
+        void reconcileNow()
+        return
       }
-      case "session.error": {
-        if (!isCurrent) return
-        const err = properties.error as { data?: { message?: string } } | undefined
-        error.value = err?.data?.message ?? "Session error"
-        break
+      case "session.execution.succeeded":
+      case "session.execution.interrupted": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        status.value = { type: "idle" }
+        void reconcileNow()
+        return
       }
-      case "todo.updated": {
-        if (!isCurrent) return
-        if (Array.isArray(properties.todos)) todos.value = properties.todos as Todo[]
-        break
+      case "session.execution.failed": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        status.value = { type: "idle" }
+        error.value = event.data.error?.message ?? "The agent run failed."
+        void reconcileNow()
+        return
       }
-      case "permission.asked":
-      case "permission.v2.asked": {
-        const request = properties as unknown as PermissionRequest
-        if (request?.id && !permissions.value.some((item) => item.id === request.id)) {
+
+      /* ------------------------------- messages ------------------------------ */
+      case "session.inbox.enqueued":
+      case "session.inbox.delivered":
+      case "session.synthetic":
+      case "session.skill.activated":
+      case "session.shell.started":
+      case "session.shell.ended": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        scheduleReconcile(client, event.data.sessionID)
+        return
+      }
+
+      /* -------------------------------- steps -------------------------------- */
+      case "session.step.started": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        const message = ensureAssistant(event.data.assistantMessageID, event.data.agent, event.data.model)
+        message.time = { ...message.time, created: event.data.started ?? Date.now() }
+        status.value = { type: "busy" }
+        return
+      }
+      case "session.step.streamed": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        const message = findMessage(event.data.assistantMessageID)
+        if (message) message.time = { ...message.time, streamed: Date.now() }
+        return
+      }
+      case "session.step.ended": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        const message = findMessage(event.data.assistantMessageID)
+        if (message) {
+          message.time = { ...message.time, completed: Date.now() }
+          message.finish = event.data.finish
+          message.cost = event.data.cost
+          message.tokens = event.data.tokens
+        }
+        void reconcileNow()
+        return
+      }
+      case "session.step.failed": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        const message = findMessage(event.data.assistantMessageID)
+        if (message) {
+          message.time = { ...message.time, completed: Date.now() }
+          message.error = event.data.error
+          if (event.data.tokens) message.tokens = event.data.tokens
+        }
+        error.value = event.data.error?.message ?? "The model returned an error."
+        void reconcileNow()
+        return
+      }
+
+      /* -------------------------------- content ------------------------------ */
+      case "session.text.delta": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        appendText(event.data.assistantMessageID, event.data.ordinal, event.data.delta)
+        return
+      }
+      case "session.text.ended": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        setText(event.data.assistantMessageID, event.data.ordinal, event.data.text)
+        return
+      }
+      case "session.reasoning.delta": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        appendReasoning(event.data.assistantMessageID, event.data.ordinal, event.data.delta)
+        return
+      }
+      case "session.reasoning.ended": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        setReasoning(event.data.assistantMessageID, event.data.ordinal, event.data.text)
+        return
+      }
+
+      /* --------------------------------- tools ------------------------------- */
+      case "session.tool.input.started": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        toolBlock(event.data.assistantMessageID, event.data.id, event.data.name)
+        return
+      }
+      case "session.tool.input.delta": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        const entry = toolBlock(event.data.assistantMessageID, event.data.id)
+        if (entry && entry.block.state.status === "streaming") {
+          entry.block.state.input += event.data.delta
+        }
+        return
+      }
+      case "session.tool.input.ended": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        toolBlock(event.data.assistantMessageID, event.data.id)
+        return
+      }
+      case "session.tool.called": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        const entry = toolBlock(event.data.assistantMessageID, event.data.id)
+        if (entry) {
+          entry.block.executed = event.data.executed
+          entry.block.state = { status: "running", input: event.data.input, metadata: {} }
+        }
+        return
+      }
+      case "session.tool.progress": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        const entry = toolBlock(event.data.assistantMessageID, event.data.id)
+        if (entry && entry.block.state.status === "running") {
+          entry.block.state = { ...entry.block.state, metadata: event.data.metadata }
+        }
+        return
+      }
+      case "session.tool.success": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        const entry = toolBlock(event.data.assistantMessageID, event.data.id)
+        if (entry) {
+          entry.block.executed = event.data.executed
+          entry.block.state = {
+            status: "completed",
+            input: toolInput(entry.block.state),
+            content: event.data.content,
+            metadata: event.data.metadata ?? {},
+          }
+        }
+        return
+      }
+      case "session.tool.failed": {
+        if (event.data.sessionID !== currentSessionID.value) return
+        const entry = toolBlock(event.data.assistantMessageID, event.data.id)
+        if (entry) {
+          entry.block.executed = event.data.executed
+          entry.block.state = {
+            status: "error",
+            input: toolInput(entry.block.state),
+            error: event.data.error,
+            content: event.data.content,
+            metadata: event.data.metadata ?? {},
+          }
+        }
+        return
+      }
+
+      /* ---------------------------- permissions/forms ------------------------ */
+      case "permission.asked": {
+        const request = event.data
+        if (!permissions.value.some((item) => item.id === request.id)) {
           permissions.value = [...permissions.value, request]
         }
-        break
+        return
       }
-      case "permission.replied":
-      case "permission.v2.replied": {
-        const id = properties.requestID as string
-        permissions.value = permissions.value.filter((item) => item.id !== id)
-        break
+      case "permission.replied": {
+        permissions.value = permissions.value.filter((item) => item.id !== event.data.requestID)
+        return
       }
-      case "question.asked":
-      case "question.v2.asked": {
-        const request = properties as unknown as QuestionRequest
-        if (request?.id && !questions.value.some((item) => item.id === request.id)) {
-          questions.value = [...questions.value, request]
-        }
-        break
+      case "form.created": {
+        const form = event.data.form
+        if (!forms.value.some((item) => item.id === form.id)) forms.value = [...forms.value, form]
+        return
       }
-      case "question.replied":
-      case "question.v2.replied":
-      case "question.rejected":
-      case "question.v2.rejected": {
-        const id = (properties.requestID as string) ?? (properties.id as string)
-        questions.value = questions.value.filter((item) => item.id !== id)
-        break
+      case "form.replied":
+      case "form.cancelled": {
+        forms.value = forms.value.filter((item) => item.id !== event.data.id)
+        return
       }
       default:
-        break
+        return
     }
   }
 
   function reset() {
+    if (reconcileTimer) {
+      clearTimeout(reconcileTimer)
+      reconcileTimer = null
+    }
+    reconcileContext = null
     currentSessionID.value = null
     messages.value = []
-    orphanParts.clear()
+    live.clear()
     status.value = { type: "idle" }
     error.value = null
     permissions.value = []
-    questions.value = []
-    todos.value = []
+    forms.value = []
   }
 
   return {
@@ -320,17 +539,16 @@ export function useChat() {
     loading,
     sending,
     error,
-    todos,
     pendingPermissions,
-    pendingQuestions,
+    pendingForms,
     currentSessionID,
     scrollToBottomRequest,
     open,
     send,
     abort,
     replyPermission,
-    replyQuestion,
-    rejectQuestion,
+    replyForm,
+    cancelForm,
     applyEvent,
     reset,
   }

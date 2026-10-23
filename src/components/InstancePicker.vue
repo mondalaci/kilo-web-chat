@@ -2,14 +2,15 @@
 import { onMounted, ref } from "vue"
 import { ArrowRight, Plus, RefreshCw, Server, KeyRound } from "lucide-vue-next"
 import Spinner from "./Spinner.vue"
-import { normalizeOrigin, type InstanceInfo } from "@/api/discovery"
+import { DEFAULT_USERNAME } from "@/api/client"
+import { normalizeOrigin, FALLBACK_PORT, type InstanceInfo } from "@/api/discovery"
+import { APP_NAME, BRAND_LETTER } from "@/brand"
 import { useApp } from "@/stores/app"
 
 const app = useApp()
 const { instances, scanning, connecting, connectError, credentialsFor, scan } = app.connection
 
 const origin = ref("")
-const username = ref("kilo")
 const password = ref("")
 const showManual = ref(false)
 const busyOrigin = ref<string | null>(null)
@@ -20,9 +21,7 @@ onMounted(() => {
 })
 
 function productLabel(product: InstanceInfo["product"]) {
-  if (product === "kilo") return "Kilo Code"
-  if (product === "opencode") return "opencode"
-  return "Server"
+  return product === "opencode" ? "opencode" : "Server"
 }
 
 async function open(info: InstanceInfo) {
@@ -31,7 +30,7 @@ async function open(info: InstanceInfo) {
   if (info.requiresAuth && !creds) {
     showManual.value = true
     origin.value = info.origin
-    localError.value = "This server requires a password."
+    localError.value = "This server requires the service password."
     return
   }
   busyOrigin.value = info.origin
@@ -43,11 +42,11 @@ async function manualConnect() {
   localError.value = null
   const normalized = normalizeOrigin(origin.value)
   if (!normalized) {
-    localError.value = "Enter a valid address, e.g. 127.0.0.1:4096"
+    localError.value = `Enter a valid address, e.g. 127.0.0.1:${FALLBACK_PORT}`
     return
   }
   const creds = password.value
-    ? { username: username.value || "kilo", password: password.value }
+    ? { username: DEFAULT_USERNAME, password: password.value }
     : credentialsFor(normalized)
   busyOrigin.value = normalized
   const info: InstanceInfo = {
@@ -66,10 +65,10 @@ async function manualConnect() {
   <div class="picker">
     <div class="panel">
       <header class="head">
-        <div class="logo" aria-hidden="true">K</div>
+        <div class="logo" aria-hidden="true">{{ BRAND_LETTER }}</div>
         <div>
-          <h1>Kilo Chat</h1>
-          <p>Connect to a Kilo Code or opencode server</p>
+          <h1>{{ APP_NAME }}</h1>
+          <p>Connect to an opencode v2 server</p>
         </div>
       </header>
 
@@ -117,25 +116,27 @@ async function manualConnect() {
           </span>
         </li>
         <li v-if="!instances.length && !scanning" class="empty">
-          No servers found on local ports. Start one with <code>kilo serve</code> and scan again, or add an address.
+          No servers found on local ports. Start one with <code>opencode serve</code> and scan again, or add an address.
         </li>
       </ul>
 
       <form v-if="showManual" class="manual" @submit.prevent="manualConnect">
         <label>
           Address
-          <input v-model="origin" placeholder="127.0.0.1:4096" autocomplete="off" spellcheck="false" />
+          <input v-model="origin" :placeholder="`127.0.0.1:${FALLBACK_PORT}`" autocomplete="off" spellcheck="false" />
         </label>
-        <div class="row">
-          <label>
-            Username
-            <input v-model="username" placeholder="kilo" autocomplete="username" />
-          </label>
-          <label>
-            Password
-            <input v-model="password" type="password" placeholder="optional" autocomplete="current-password" />
-          </label>
-        </div>
+        <label>
+          Service password
+          <input
+            v-model="password"
+            type="password"
+            placeholder="from ~/.config/opencode/service.json"
+            autocomplete="current-password"
+          />
+        </label>
+        <p class="hint">
+          The username is always <code>opencode</code>. Leave the password empty for a server started without one.
+        </p>
         <button class="primary wide" type="submit" :disabled="connecting">
           <Spinner v-if="connecting" :size="14" />
           <template v-else>Connect</template>
@@ -276,9 +277,20 @@ h1 {
   border: 1px solid var(--border);
   white-space: nowrap;
 }
-.badge.kilo {
+.badge.opencode {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.hint {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+.hint code {
+  font-family: var(--font-mono);
+  background: var(--bg-active);
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 .manual {
   margin-top: 16px;

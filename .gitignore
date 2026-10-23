@@ -4,5 +4,4 @@ dist-ssr
 *.local
 .DS_Store
 .vite
-search-server/data
-public/kilo-web-chat.json
+public/opencode-web-chat.json

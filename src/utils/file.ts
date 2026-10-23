@@ -1,4 +1,6 @@
-/** Helpers for the `file` parts the server echoes back for attachments. */
+/** Helpers for rendering the files a session carries. */
+
+import type { PromptFileAttachment, ToolFileContent } from "@/api/types"
 
 const TEXT_MIME =
   /^(text\/|application\/(json|ld\+json|xml|javascript|typescript|x-javascript|x-typescript|x-yaml|yaml|x-sh|toml|x-python|x-ruby|x-rust|x-go|x-java|x-c|x-c\+\+|sql|csv|graphql|x-httpd-php)|image\/svg)/i
@@ -91,3 +93,64 @@ export function formatBytes(bytes: number): string {
   }
   return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
 }
+
+/* -------------------------------------------------------------------------- */
+/* Session file views                                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Whether a URL points at something the browser can fetch directly. */
+export function isHttpUrl(url: string): boolean {
+  return /^https?:/i.test(url)
+}
+
+/**
+ * A file the UI can render, normalized from either a user attachment
+ * (`Prompt.FileAttachment`) or a tool result (`Tool.FileContent`).
+ */
+export interface FileView {
+  mime: string
+  name: string
+  /** A data URL when the content travels with the message, else the reference. */
+  url: string
+  /** True when `url` carries the bytes (so download/Open-in-tab work locally). */
+  inline: boolean
+  /** The original file path or URI, when there is one. */
+  reference?: string
+}
+
+function dataUrl(mime: string, data: string): string {
+  return `data:${mime || "application/octet-stream"};base64,${data}`
+}
+
+function basename(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path
+}
+
+/** Normalize a user message attachment. */
+export function attachmentView(file: PromptFileAttachment): FileView {
+  const reference = file.source && file.source.type === "uri" ? file.source.uri : undefined
+  // The server echoes the bytes back as base64 even for URI-sourced files, so
+  // prefer the inline copy when it is present.
+  const inline = !!file.data
+  const url = inline ? dataUrl(file.mime, file.data) : (reference ?? "")
+  return {
+    mime: file.mime,
+    name: file.name || (reference ? basename(reference) : file.mime || "file"),
+    url,
+    inline,
+    reference,
+  }
+}
+
+/** Normalize a tool result file. */
+export function toolFileView(content: ToolFileContent): FileView {
+  const url = content.uri ?? ""
+  return {
+    mime: content.mime ?? "",
+    name: content.name || (url ? basename(url) : "file"),
+    url,
+    inline: url.startsWith("data:"),
+    reference: url,
+  }
+}
+

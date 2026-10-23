@@ -1,9 +1,10 @@
 import { computed, ref } from "vue"
 import type { ServerClient } from "@/api/client"
 import { normalizeOrigin } from "@/api/discovery"
-import type { Agent, Command, Model, ModelRef, ModelState, PathInfo, Project, Provider, ServerConfig } from "@/api/types"
+import type { Agent, Command, Model, ModelRef, Project, Provider, SkillInfo } from "@/api/types"
+import { baseCost, isFreeModel, variantIDs } from "@/api/types"
 
-const PREFS_KEY = "kilo-web-chat.prefs"
+const PREFS_KEY = "opencode-web-chat.prefs"
 
 interface Preferences {
   [origin: string]: { agent?: string; model?: ModelRef; directory?: string }
@@ -35,13 +36,6 @@ function persistPrefs() {
   }
 }
 
-export interface ModelChoice {
-  providerID: string
-  providerName: string
-  connected: boolean
-  model: Model
-}
-
 export interface ModelGroup {
   providerID: string
   providerName: string
@@ -50,56 +44,59 @@ export interface ModelGroup {
 }
 
 const origin = ref<string | null>(null)
-const pathInfo = ref<PathInfo | null>(null)
-const config = ref<ServerConfig | null>(null)
+const directory = ref<string | null>(null)
 const agents = ref<Agent[]>([])
+const models = ref<Model[]>([])
 const providers = ref<Provider[]>([])
 const connectedProviderIDs = ref<string[]>([])
 const commands = ref<Command[]>([])
+const skills = ref<SkillInfo[]>([])
 const projects = ref<Project[]>([])
-const toolIds = ref<string[]>([])
-const modelState = ref<ModelState | null>(null)
-const selectedDirectory = ref<string | null>(null)
+const configValues = ref<{ model?: string; defaultAgent?: string; username?: string } | null>(null)
+const serverDefaultModel = ref<ModelRef | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-const selectedAgent = ref<string>("code")
+const selectedAgent = ref<string>("build")
 const selectedModel = ref<ModelRef | null>(null)
 
 /** Providers sorted so connected ones come first, then alphabetically. */
 const providerGroups = computed<ModelGroup[]>(() => {
   const connected = new Set(connectedProviderIDs.value)
-  return providers.value
-    .filter((provider) => Object.keys(provider.models ?? {}).length > 0)
-    .map((provider) => ({
-      providerID: provider.id,
-      providerName: provider.name || provider.id,
-      connected: connected.has(provider.id),
-      models: Object.values(provider.models).sort((a, b) => a.name.localeCompare(b.name)),
-    }))
+  const groups = new Map<string, ModelGroup>()
+  for (const model of models.value) {
+    const provider = providers.value.find((item) => item.id === model.providerID)
+    const group = groups.get(model.providerID) ?? {
+      providerID: model.providerID,
+      providerName: provider?.name || model.providerID,
+      connected: connected.has(model.providerID),
+      models: [],
+    }
+    group.models.push(model)
+    groups.set(model.providerID, group)
+  }
+  return [...groups.values()]
+    .map((group) => ({ ...group, models: [...group.models].sort((a, b) => a.name.localeCompare(b.name)) }))
     .sort((a, b) => {
       if (a.connected !== b.connected) return a.connected ? -1 : 1
       return a.providerName.localeCompare(b.providerName)
     })
 })
 
+/** Primary, non-hidden agents — the ones a chat can be started with. */
 const modes = computed<Agent[]>(() => agents.value.filter((agent) => agent.mode === "primary" && !agent.hidden))
 
 const selectedAgentInfo = computed<Agent | undefined>(() =>
-  modes.value.find((agent) => agent.name === selectedAgent.value),
+  modes.value.find((agent) => agent.id === selectedAgent.value),
 )
 
 const selectedModelInfo = computed<Model | undefined>(() => {
   const ref_ = selectedModel.value
   if (!ref_) return undefined
-  const provider = providers.value.find((item) => item.id === ref_.providerID)
-  return provider?.models?.[ref_.modelID]
+  return models.value.find((item) => item.providerID === ref_.providerID && item.id === ref_.id)
 })
 
-/** Variant names available for the selected model (reasoning effort, etc.). */
-const selectedModelVariants = computed<string[]>(() => Object.keys(selectedModelInfo.value?.variants ?? {}))
-
-/** Currently selected variant for the selected model. */
+const selectedModelVariants = computed<string[]>(() => variantIDs(selectedModelInfo.value))
 const selectedVariant = computed<string | undefined>(() => selectedModel.value?.variant)
 
 function parseModelString(value: string | undefined): ModelRef | null {
@@ -107,93 +104,85 @@ function parseModelString(value: string | undefined): ModelRef | null {
   const [providerID, ...rest] = value.split("/")
   const modelID = rest.join("/")
   if (!providerID || !modelID) return null
-  return { providerID, modelID }
+  return { id: modelID, providerID }
+}
+
+/** Normalize a loose model reference into the shape the API expects. */
+export function toModelRef(model: Model | ModelRef): ModelRef {
+  const modelID = "modelID" in model ? model.modelID : model.id
+  const variant = "variant" in model ? model.variant : undefined
+  return { id: modelID, providerID: model.providerID, variant }
 }
 
 export function useServer() {
-  function applyDefaults() {
-    const cfg = config.value
-    const defaults = prefs.value[origin.value ?? ""] ?? {}
-    selectedAgent.value = defaults.agent ?? cfg?.default_agent ?? modes.value[0]?.name ?? "code"
-    selectedModel.value = resolveDefaultModel()
-  }
-
-  /** Last variant chosen for a model, from the server's model state. */
-  function variantFor(providerID: string, modelID: string): string | undefined {
-    return modelState.value?.variant?.[`${providerID}/${modelID}`]
-  }
-
-  /** Attach the remembered variant (if it is valid for the model). */
-  function withVariant(ref: ModelRef): ModelRef {
-    const info = providers.value.find((item) => item.id === ref.providerID)?.models?.[ref.modelID]
-    const candidate = ref.variant ?? variantFor(ref.providerID, ref.modelID)
-    if (candidate && info?.variants?.[candidate]) return { ...ref, variant: candidate }
-    const { variant: _drop, ...rest } = ref
-    return rest
+  function resolved(ref_: ModelRef | null | undefined): ModelRef | null {
+    if (!ref_?.id) return null
+    return { id: ref_.id, providerID: ref_.providerID, variant: ref_.variant }
   }
 
   /**
-   * Resolve the same default the server would use when a prompt omits a model:
-   * saved pref → agent model → model-state for the agent → config.model → the
-   * first recent model whose provider is loaded.
+   * Fallback selection when neither the session nor the saved preferences name
+   * an agent/model: config default agent → config model → server default model.
    */
-  function resolveDefaultModel(): ModelRef | null {
-    const defaults = prefs.value[origin.value ?? ""] ?? {}
-    if (defaults.model) return withVariant(defaults.model)
-    const agentModel = selectedAgentInfo.value?.model
-    if (agentModel) return withVariant(agentModel)
-    const agentState = modelState.value?.model?.[selectedAgent.value]
-    if (agentState) return withVariant(agentState)
-    const cfgModel = parseModelString(config.value?.model)
-    if (cfgModel) return withVariant(cfgModel)
-    for (const ref of modelState.value?.recent ?? []) {
-      const provider = providers.value.find((item) => item.id === ref.providerID)
-      if (provider?.models?.[ref.modelID]) return withVariant(ref)
-    }
-    return null
+  function applyDefaults() {
+    const saved = prefs.value[origin.value ?? ""] ?? {}
+    selectedAgent.value =
+      saved.agent ??
+      configValues.value?.defaultAgent ??
+      modes.value[0]?.id ??
+      agents.value[0]?.id ??
+      "build"
+
+    const candidates: Array<ModelRef | null> = [
+      resolved(saved.model),
+      resolved(parseModelString(configValues.value?.model)),
+      resolved(serverDefaultModel.value),
+      resolved(selectedAgentInfo.value?.model),
+    ]
+    selectedModel.value = candidates.find((candidate) => candidate != null) ?? null
   }
 
-  async function load(client: ServerClient, instanceOrigin: string, directory?: string) {
+  async function load(client: ServerClient, instanceOrigin: string, projectDirectory?: string) {
     const changedOrigin = origin.value !== instanceOrigin
     origin.value = instanceOrigin
     loading.value = true
     error.value = null
 
     // Apply saved agent/model synchronously so the UI never flashes the default
-    // ("code") before the persisted choice loads.
+    // while the request is in flight.
     const saved = prefs.value[instanceOrigin] ?? {}
     if (saved.agent) selectedAgent.value = saved.agent
-    if (saved.model) selectedModel.value = saved.model
+    if (saved.model) selectedModel.value = resolved(saved.model)
 
     try {
-      // Prefer the requested directory (last used project), falling back to the
-      // server's default project if it is gone.
-      let path = directory ? await client.path({ directory }).catch(() => null) : null
-      let dir = directory && path ? directory : undefined
-      if (!dir || !path) {
-        path = await client.path().catch(() => null)
-        dir = path?.worktree ?? path?.directory ?? undefined
-      }
-      pathInfo.value = path
-      selectedDirectory.value = dir ?? null
+      const dir = projectDirectory ?? saved.directory
+      directory.value = dir ?? null
 
-      const [cfg, agentList, providerList, commandList, projectList, state, ids] = await Promise.all([
-        client.config({ directory: dir }).catch(() => null),
-        client.agents({ directory: dir }).catch(() => [] as Agent[]),
-        client.providers({ directory: dir }).catch(() => null),
-        client.commands({ directory: dir }).catch(() => [] as Command[]),
-        client.projects().catch(() => [] as Project[]),
-        client.modelState({ directory: dir }).catch(() => null),
-        client.toolIds({ directory: dir }).catch(() => [] as string[]),
-      ])
-      config.value = cfg
+      const [agentList, modelList, providerList, projectList, config, defaultModel, credentialIntegrations, commandList, skillList] =
+        await Promise.all([
+          client.agents(dir).catch(() => [] as Agent[]),
+          client.models(dir).catch(() => [] as Model[]),
+          client.providers(dir).catch(() => [] as Provider[]),
+          client.projects().catch(() => [] as Project[]),
+          client.configValues(dir).catch(() => null),
+          client.defaultModel(dir).catch(() => null),
+          client.connectedIntegrations().catch(() => new Set<string>()),
+          client.commands(dir).catch(() => [] as Command[]),
+          client.skills(dir).catch(() => [] as SkillInfo[]),
+        ])
+
       agents.value = agentList
-      providers.value = providerList?.all ?? []
-      connectedProviderIDs.value = providerList?.connected ?? []
-      commands.value = commandList
+      models.value = modelList
+      providers.value = providerList
       projects.value = projectList
-      modelState.value = state
-      toolIds.value = ids
+      configValues.value = config
+      serverDefaultModel.value = defaultModel ? { id: defaultModel.modelID, providerID: defaultModel.providerID } : null
+      const withKeys = providerList
+        .filter((provider) => typeof provider.settings?.apiKey === "string" && provider.settings.apiKey.length > 0)
+        .map((provider) => provider.id)
+      connectedProviderIDs.value = [...new Set([...credentialIntegrations, ...withKeys])]
+      commands.value = commandList
+      skills.value = skillList
       // Don't clobber the current agent/model when only switching project.
       if (changedOrigin || !selectedModel.value) applyDefaults()
     } catch (err) {
@@ -209,16 +198,16 @@ export function useServer() {
 
   /**
    * Synchronously apply saved agent/model for an origin. Call before connecting
-   * so the shell never flashes the "code" default while the server loads.
+   * so the shell never flashes a default while the server loads.
    */
   function applySavedPrefs(instanceOrigin: string) {
     const saved = prefs.value[instanceOrigin] ?? {}
     if (saved.agent) selectedAgent.value = saved.agent
-    if (saved.model) selectedModel.value = saved.model
+    if (saved.model) selectedModel.value = resolved(saved.model)
   }
 
   function setDirectory(dir: string) {
-    selectedDirectory.value = dir
+    directory.value = dir
     const key = origin.value
     if (key) {
       prefs.value = { ...prefs.value, [key]: { ...prefs.value[key], directory: dir } }
@@ -228,57 +217,54 @@ export function useServer() {
 
   function reset() {
     origin.value = null
-    pathInfo.value = null
-    config.value = null
+    directory.value = null
     agents.value = []
+    models.value = []
     providers.value = []
     connectedProviderIDs.value = []
     commands.value = []
+    skills.value = []
     projects.value = []
-    toolIds.value = []
-    modelState.value = null
-    selectedDirectory.value = null
+    configValues.value = null
+    serverDefaultModel.value = null
     selectedModel.value = null
   }
 
-  function setAgent(name: string) {
+  /** Adopt a session's own agent/model as the current selection. */
+  function applySession(session: { agent?: string; model?: ModelRef }) {
+    if (session.agent) selectedAgent.value = session.agent
+    const model = resolved(session.model)
+    if (model) selectedModel.value = model
+  }
+
+  /** Persist the agent selection without touching the server. */
+  function setAgentLocal(name: string) {
     selectedAgent.value = name
     const key = origin.value ?? ""
     prefs.value = { ...prefs.value, [key]: { ...prefs.value[key], agent: name } }
     persistPrefs()
   }
 
-  function setModel(model: ModelRef) {
-    const next = withVariant({ providerID: model.providerID, modelID: model.modelID })
+  /** Persist the model selection without touching the server. */
+  function setModelLocal(model: Model | ModelRef, variant?: string) {
+    const next = resolved({ ...toModelRef(model), variant: variant ?? (model as ModelRef).variant })
+    if (!next) return
     selectedModel.value = next
     const key = origin.value ?? ""
     prefs.value = { ...prefs.value, [key]: { ...prefs.value[key], model: next } }
     persistPrefs()
   }
-
-  function setVariant(variant: string) {
-    if (!selectedModel.value) return
-    const next = { ...selectedModel.value, variant }
-    selectedModel.value = next
-    const key = origin.value ?? ""
-    prefs.value = { ...prefs.value, [key]: { ...prefs.value[key], model: next } }
-    persistPrefs()
-  }
-
-  /** The directory that scopes all instance requests (the selected project). */
-  const directory = computed(
-    () => selectedDirectory.value ?? pathInfo.value?.worktree ?? pathInfo.value?.directory ?? undefined,
-  )
 
   return {
-    pathInfo,
-    config,
+    directory,
     agents,
+    models,
     providers,
+    connectedProviderIDs,
     commands,
+    skills,
     projects,
-    toolIds,
-    selectedDirectory,
+    configValues,
     loading,
     error,
     modes,
@@ -289,14 +275,29 @@ export function useServer() {
     selectedModelInfo,
     selectedModelVariants,
     selectedVariant,
-    directory,
     load,
     setDirectory,
     savedDirectory,
     applySavedPrefs,
+    applySession,
+    applyDefaults,
     reset,
-    setAgent,
-    setModel,
-    setVariant,
+    setAgentLocal,
+    setModelLocal,
   }
+}
+
+/** Price label helpers shared by the model picker. */
+export function modelCostLabel(model: Model): string {
+  if (isFreeModel(model)) return "free"
+  const cost = baseCost(model)
+  if (!cost || (!cost.input && !cost.output)) return ""
+  return `$${price(cost.input)}/$${price(cost.output)}`
+}
+
+/** Compact USD-per-1M-token price: `$3/$15`. */
+export function price(value: number): string {
+  if (!value) return "0"
+  if (value >= 1) return value.toFixed(2).replace(/\.00$/, "")
+  return value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")
 }

@@ -1,96 +1,268 @@
 <script setup lang="ts">
-import { reactive } from "vue"
-import { HelpCircle, ShieldAlert, X } from "lucide-vue-next"
-import type { PermissionRequest, QuestionRequest } from "@/api/types"
+import { computed, reactive, ref } from "vue"
+import { ExternalLink, HelpCircle, ShieldAlert, X } from "lucide-vue-next"
+import type { FormField, FormInfo, FormValue } from "@/api/types"
 import { useApp } from "@/stores/app"
 
 const app = useApp()
-const { pendingPermissions, pendingQuestions } = app.chat
-const { replyPermission, replyQuestion, rejectQuestion } = app
+const { pendingPermissions, pendingForms } = app.chat
+const { replyPermission, replyForm, cancelForm } = app
 
-const selections = reactive<Record<string, string[][]>>({})
-const customs = reactive<Record<string, string>>({})
+/* ------------------------------- permissions ------------------------------- */
 
-function selection(requestID: string, index: number): string[] {
-  if (!selections[requestID]) selections[requestID] = []
-  if (!selections[requestID][index]) selections[requestID][index] = []
-  return selections[requestID][index]
+function decide(sessionID: string, requestID: string, decision: "once" | "always" | "reject") {
+  void replyPermission(sessionID, requestID, decision)
 }
 
-function pick(request: QuestionRequest, index: number, label: string, multiple?: boolean) {
-  const current = selection(request.id, index)
-  if (multiple) {
-    const pos = current.indexOf(label)
-    if (pos === -1) current.push(label)
-    else current.splice(pos, 1)
+/* ---------------------------------- forms ---------------------------------- */
+
+/** Draft answers, keyed `${formID}:${fieldKey}`. */
+const answers = reactive<Record<string, string | number | string[] | boolean>>({})
+const submitting = ref<string | null>(null)
+
+function key(form: FormInfo, field: FormField) {
+  return `${form.id}:${field.key}`
+}
+
+function answerText(form: FormInfo, field: FormField): string {
+  const value = answers[key(form, field)]
+  return typeof value === "string" ? value : ""
+}
+
+/** Whether a conditional field is visible given the current draft answers. */
+function visible(form: FormInfo, field: FormField): boolean {
+  if ("hidden" in field && field.hidden) return false
+  if (!("when" in field) || !field.when?.length) return true
+  return field.when.every((condition) => {
+    const current = answers[`${form.id}:${condition.key}`]
+    const matches = Array.isArray(current) ? current.includes(String(condition.value)) : current === condition.value
+    return condition.op === "eq" ? matches : !matches
+  })
+}
+
+function visibleFields(form: FormInfo): FormField[] {
+  return form.fields.filter((field) => visible(form, field))
+}
+
+/** Single-choice selection for a `string` field that has options. */
+function picked(form: FormInfo, field: FormField, value: string): boolean {
+  return answers[key(form, field)] === value
+}
+
+function pick(form: FormInfo, field: FormField, value: string) {
+  answers[key(form, field)] = picked(form, field, value) ? "" : value
+}
+
+function toggled(form: FormInfo, field: FormField, value: string): boolean {
+  const current = answers[key(form, field)]
+  return Array.isArray(current) && current.includes(value)
+}
+
+function toggle(form: FormInfo, field: FormField, value: string) {
+  const current = answers[key(form, field)]
+  const list = Array.isArray(current) ? [...current] : []
+  const index = list.indexOf(value)
+  if (index === -1) list.push(value)
+  else list.splice(index, 1)
+  answers[key(form, field)] = list
+}
+
+function optionValues(field: FormField): string[] {
+  return ((field as { options?: Array<{ value: string }> }).options ?? []).map((option) => option.value)
+}
+
+/** Free text typed into a field that also offers options. */
+function customText(form: FormInfo, field: FormField): string {
+  const current = answers[key(form, field)]
+  const options = optionValues(field)
+  if (Array.isArray(current)) return current.find((item) => !options.includes(item)) ?? ""
+  return typeof current === "string" && current && !options.includes(current) ? current : ""
+}
+
+/**
+ * Write a custom answer: for a single-choice field it replaces the picked
+ * option, for a multiselect it is kept alongside the checked options.
+ */
+function setCustom(form: FormInfo, field: FormField, value: string) {
+  const options = optionValues(field)
+  const current = answers[key(form, field)]
+  if (Array.isArray(current)) {
+    const kept = current.filter((item) => options.includes(item))
+    answers[key(form, field)] = value ? [...kept, value] : kept
   } else {
-    selections[request.id][index] = [label]
+    answers[key(form, field)] = value
   }
 }
 
-function isPicked(request: QuestionRequest, index: number, label: string) {
-  return selection(request.id, index).includes(label)
+function setAnswer(form: FormInfo, field: FormField, value: string | string[] | boolean | number) {
+  answers[key(form, field)] = value
 }
 
-function submit(request: QuestionRequest) {
-  const answers = request.questions.map((_, index) => {
-    const picked = [...(selections[request.id]?.[index] ?? [])]
-    const custom = customs[`${request.id}:${index}`]?.trim()
-    if (custom) picked.push(custom)
-    return picked
-  })
-  void replyQuestion(request.id, answers)
+function setText(form: FormInfo, field: FormField, value: string) {
+  setAnswer(form, field, value)
 }
+
+function setNumber(form: FormInfo, field: FormField, value: string) {
+  setAnswer(form, field, value === "" ? "" : Number(value))
+}
+
+function buildAnswer(form: FormInfo): Record<string, FormValue> {
+  const answer: Record<string, FormValue> = {}
+  for (const field of visibleFields(form)) {
+    const value = answers[key(form, field)]
+    if (value === undefined || value === "") continue
+    if (Array.isArray(value) && value.length === 0) continue
+    answer[field.key] = value as FormValue
+  }
+  return answer
+}
+
+function missingRequired(form: FormInfo): boolean {
+  return visibleFields(form).some((field) => {
+    if (!("required" in field && field.required)) return false
+    const value = answers[key(form, field)]
+    if (value === undefined || value === "") return true
+    return Array.isArray(value) && value.length === 0
+  })
+}
+
+async function submit(form: FormInfo) {
+  if (missingRequired(form)) return
+  submitting.value = form.id
+  try {
+    await replyForm(form, buildAnswer(form))
+  } finally {
+    submitting.value = null
+  }
+}
+
+function dismiss(form: FormInfo) {
+  void cancelForm(form)
+}
+
+const isEmpty = computed(() => !pendingPermissions.value.length && !pendingForms.value.length)
 </script>
 
 <template>
-  <div v-if="pendingPermissions.length || pendingQuestions.length" class="dock">
+  <div v-if="!isEmpty" class="dock">
     <div v-for="request in pendingPermissions" :key="request.id" class="card permission">
       <div class="card-head">
         <ShieldAlert :size="16" class="icon-warn" />
         <span>Permission required</span>
-        <span class="perm-name">{{ request.permission }}</span>
+        <span class="perm-name">{{ request.action }}</span>
       </div>
-      <div v-if="request.patterns?.length" class="patterns">
-        <code v-for="pattern in request.patterns" :key="pattern">{{ pattern }}</code>
+      <p v-if="request.message" class="perm-message">{{ request.message }}</p>
+      <div v-if="request.resources?.length" class="patterns">
+        <code v-for="resource in request.resources" :key="resource">{{ resource }}</code>
       </div>
       <div class="actions">
-        <button class="primary" @click="replyPermission(request.id, 'once')">Allow once</button>
-        <button @click="replyPermission(request.id, 'always')">Always allow</button>
-        <button class="danger" @click="replyPermission(request.id, 'reject')">Deny</button>
+        <button class="primary" @click="decide(request.sessionID, request.id, 'once')">Allow once</button>
+        <button @click="decide(request.sessionID, request.id, 'always')">Always allow</button>
+        <button class="danger" @click="decide(request.sessionID, request.id, 'reject')">Deny</button>
       </div>
     </div>
 
-    <div v-for="request in pendingQuestions" :key="request.id" class="card question">
+    <div v-for="form in pendingForms" :key="form.id" class="card question">
       <div class="card-head">
         <HelpCircle :size="16" class="icon-accent" />
-        <span>{{ request.questions[0]?.header ?? "Question" }}</span>
-        <button class="close" title="Reject" @click="rejectQuestion(request.id)"><X :size="15" /></button>
+        <span>{{ form.title }}</span>
+        <button class="close" title="Cancel" @click="dismiss(form)"><X :size="15" /></button>
       </div>
-      <div v-for="(question, index) in request.questions" :key="index" class="question-block">
-        <p class="question-text">{{ question.question }}</p>
-        <div class="options">
+
+      <div v-for="field in visibleFields(form)" :key="field.key" class="field">
+        <p class="field-title">
+          {{ field.title || field.key }}
+          <span v-if="'required' in field && field.required" class="required">*</span>
+        </p>
+        <p v-if="field.description" class="field-desc">{{ field.description }}</p>
+
+        <!-- single choice -->
+        <div v-if="field.type === 'string' && field.options?.length" class="options">
           <button
-            v-for="option in question.options"
-            :key="option.label"
+            v-for="option in field.options"
+            :key="option.value"
             class="option"
-            :class="{ picked: isPicked(request, index, option.label) }"
-            @click="pick(request, index, option.label, question.multiple)"
+            :class="{ picked: picked(form, field, option.value) }"
+            @click="pick(form, field, option.value)"
           >
             <span class="option-label">{{ option.label }}</span>
             <span v-if="option.description" class="option-desc">{{ option.description }}</span>
           </button>
         </div>
+
+        <!-- multi choice -->
+        <div v-else-if="field.type === 'multiselect'" class="options">
+          <button
+            v-for="option in field.options"
+            :key="option.value"
+            class="option"
+            :class="{ picked: toggled(form, field, option.value) }"
+            @click="toggle(form, field, option.value)"
+          >
+            <span class="option-label">{{ option.label }}</span>
+            <span v-if="option.description" class="option-desc">{{ option.description }}</span>
+          </button>
+        </div>
+
+        <!-- yes / no -->
+        <div v-else-if="field.type === 'boolean'" class="options row">
+          <button
+            class="option"
+            :class="{ picked: answers[key(form, field)] === true }"
+            @click="answers[key(form, field)] = true"
+          >
+            <span class="option-label">Yes</span>
+          </button>
+          <button
+            class="option"
+            :class="{ picked: answers[key(form, field)] === false }"
+            @click="answers[key(form, field)] = false"
+          >
+            <span class="option-label">No</span>
+          </button>
+        </div>
+
+        <!-- number / integer -->
         <input
-          v-if="question.custom"
-          v-model="customs[`${request.id}:${index}`]"
+          v-else-if="field.type === 'number' || field.type === 'integer'"
+          :value="answerText(form, field)"
+          class="custom"
+          type="number"
+          :step="field.type === 'integer' ? 1 : 'any'"
+          :placeholder="field.title || field.key"
+          @input="setNumber(form, field, ($event.target as HTMLInputElement).value)"
+        />
+
+        <!-- external link -->
+        <a v-else-if="field.type === 'external'" class="external" :href="field.url" target="_blank" rel="noreferrer">
+          <ExternalLink :size="13" /> {{ field.url }}
+        </a>
+
+        <!-- plain text -->
+        <input
+          v-else
+          :value="answerText(form, field)"
+          class="custom"
+          :type="field.format === 'email' ? 'email' : 'text'"
+          :placeholder="field.placeholder || 'Type your answer…'"
+          @input="setText(form, field, ($event.target as HTMLInputElement).value)"
+          @keydown.enter.prevent="submit(form)"
+        />
+
+        <input
+          v-if="(field.type === 'string' || field.type === 'multiselect') && field.options?.length && field.custom"
+          :value="customText(form, field)"
           class="custom"
           placeholder="Or type your own answer…"
-          @keydown.enter.prevent="submit(request)"
+          @input="setCustom(form, field, ($event.target as HTMLInputElement).value)"
+          @keydown.enter.prevent="submit(form)"
         />
       </div>
+
       <div class="actions">
-        <button class="primary" @click="submit(request)">Submit</button>
+        <button class="primary" :disabled="submitting === form.id || missingRequired(form)" @click="submit(form)">
+          Submit
+        </button>
       </div>
     </div>
   </div>
@@ -122,9 +294,7 @@ function submit(request: QuestionRequest) {
   font-weight: 600;
   margin-bottom: 8px;
 }
-.icon-warn {
-  color: var(--accent);
-}
+.icon-warn,
 .icon-accent {
   color: var(--accent);
 }
@@ -133,6 +303,13 @@ function submit(request: QuestionRequest) {
   font-size: 12px;
   color: var(--text-muted);
   font-weight: 400;
+}
+.perm-message {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .close {
   margin-left: auto;
@@ -173,7 +350,7 @@ function submit(request: QuestionRequest) {
   padding: 6px 12px;
   font-size: 13px;
 }
-.actions button:hover {
+.actions button:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 .actions button.primary {
@@ -181,24 +358,39 @@ function submit(request: QuestionRequest) {
   border-color: var(--accent);
   color: var(--accent-text);
 }
-.actions button.primary:hover {
+.actions button.primary:hover:not(:disabled) {
   background: var(--accent-hover);
+}
+.actions button.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .actions button.danger {
   color: var(--danger);
   border-color: color-mix(in srgb, var(--danger) 45%, transparent);
 }
-.question-block {
+.field {
   margin-bottom: 12px;
 }
-.question-text {
-  margin: 0 0 8px;
+.field-title {
+  margin: 0 0 4px;
   font-size: 13.5px;
+}
+.field-desc {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.required {
+  color: var(--accent);
 }
 .options {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+.options.row {
+  flex-direction: row;
 }
 .option {
   display: flex;
@@ -226,15 +418,24 @@ function submit(request: QuestionRequest) {
   color: var(--text-muted);
 }
 .custom {
-  margin-top: 8px;
+  margin-top: 6px;
   width: 100%;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 7px 10px;
   outline: none;
+  color: var(--text);
 }
 .custom:focus {
   border-color: var(--accent);
+}
+.external {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--accent);
+  overflow-wrap: anywhere;
 }
 </style>

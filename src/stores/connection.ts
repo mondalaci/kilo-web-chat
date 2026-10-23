@@ -1,8 +1,11 @@
 import { computed, ref, shallowRef } from "vue"
 import { ServerClient, type Credentials } from "@/api/client"
+import { DEFAULT_USERNAME } from "@/api/client"
 import { discoverInstances, normalizeOrigin, probeInstance, type InstanceInfo } from "@/api/discovery"
 
-const STORAGE_KEY = "kilo-web-chat.connections"
+const STORAGE_KEY = "opencode-web-chat.connections"
+/** Key used by the previous (Kilo) build, read once to avoid re-entering auth. */
+const LEGACY_STORAGE_KEY = "kilo-web-chat.connections"
 
 export interface SavedConnection {
   origin: string
@@ -16,7 +19,15 @@ export interface SavedConnection {
 
 function loadSaved(): SavedConnection[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    let raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) {
+      const legacy = localStorage.getItem(LEGACY_STORAGE_KEY)
+      if (legacy) {
+        raw = legacy
+        localStorage.setItem(STORAGE_KEY, legacy)
+        localStorage.removeItem(LEGACY_STORAGE_KEY)
+      }
+    }
     if (!raw) return []
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
@@ -24,6 +35,9 @@ function loadSaved(): SavedConnection[] {
     // server (e.g. an old 127.0.0.1 entry and a new localhost one).
     const merged = new Map<string, SavedConnection>()
     for (const item of parsed as SavedConnection[]) {
+      // The legacy list can name a Kilo Code (v1) server, which this build
+      // cannot talk to; drop those so they are not offered on the picker.
+      if ((item as { product?: string }).product === "kilo") continue
       const origin = normalizeOrigin(item.origin) ?? item.origin
       const next: SavedConnection = { ...item, origin }
       const previous = merged.get(origin)
@@ -64,7 +78,7 @@ function credentialsFor(origin: string): Credentials | undefined {
   const canonical = normalizeOrigin(origin) ?? origin
   const entry = saved.value.find((item) => item.origin === canonical)
   if (!entry?.password) return undefined
-  return { username: entry.username || "kilo", password: entry.password }
+  return { username: entry.username || DEFAULT_USERNAME, password: entry.password }
 }
 
 export function useConnection() {
@@ -108,12 +122,12 @@ export function useConnection() {
       // credentials actually work before entering the app shell.
       const probe = await probeInstance(info.origin, creds)
       if (!probe) {
-        connectError.value = `Could not reach ${info.origin}. Is the server running?`
+        connectError.value = `Could not reach ${info.origin} — is the opencode v2 server running?`
         return false
       }
       if (probe.requiresAuth) {
         connectError.value = creds
-          ? "Authentication failed. Check the username and password."
+          ? "Authentication failed. Check the service password."
           : "This server requires a password."
         return false
       }
@@ -126,7 +140,7 @@ export function useConnection() {
         origin: probe.origin,
         product: probe.product,
         version: probe.version,
-        username: creds?.username ?? existing?.username ?? "kilo",
+        username: creds?.username ?? existing?.username ?? DEFAULT_USERNAME,
         password: creds?.password ?? existing?.password ?? "",
         lastUsed: Date.now(),
       }

@@ -1,14 +1,14 @@
-import { ServerClient, ServerError, type Credentials } from "./client"
-import type { ServerConfig } from "./types"
+import type { Credentials } from "./client"
+import { DEFAULT_USERNAME } from "./client"
 
-export type ServerProduct = "kilo" | "opencode" | "unknown"
+export type ServerProduct = "opencode" | "unknown"
 
 export interface InstanceInfo {
   id: string
   origin: string
   product: ServerProduct
   version: string
-  /** Default directory reported by `/path`, when reachable without auth. */
+  /** Default directory reported by `/api/location`, when reachable. */
   directory?: string
   requiresAuth: boolean
 }
@@ -21,15 +21,18 @@ export interface DiscoverOptions {
 }
 
 /**
- * Default ports to probe. The server prefers `4096` for its headless listener,
- * then falls back to a random free port, so we scan a small neighbourhood plus
- * a few common dev ports.
+ * Default ports to probe. opencode v2 picks a random free port unless it is
+ * pinned, so deployments (including the bundled PM2 one, see
+ * `~/.config/opencode/ecosystem.config.cjs`) usually pin `4097`; the rest of the
+ * list covers the documented default and a few common dev ports.
  */
 export const DEFAULT_PORTS = [
-  4096, 4097, 4098, 4099, 4100, 4101, 4102, 4103, 4104, 4105, 4110, 4120, 3000, 3456, 5000, 8000, 8080,
-  // Uncommon high port used by the bundled PM2 server (ecosystem.config.cjs).
-  27183,
+  4097, 4096, 4098, 4099, 4100, 4101, 4102, 4103, 4104, 4105, 4110, 4120,
+  3000, 3456, 5000, 8000, 8080,
 ]
+
+/** The port assumed when a user enters a bare host name. */
+export const FALLBACK_PORT = "4097"
 
 const DEFAULT_HOSTS = ["localhost"]
 
@@ -37,7 +40,7 @@ const DEFAULT_HOSTS = ["localhost"]
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"])
 
 /**
- * Normalize a user-entered address into an origin such as `http://localhost:4096`.
+ * Normalize a user-entered address into an origin such as `http://localhost:4097`.
  * Loopback aliases (`127.0.0.1`, `::1`, `0.0.0.0`) are canonicalized to
  * `localhost` so the same server is not listed more than once.
  */
@@ -47,7 +50,7 @@ export function normalizeOrigin(input: string): string | null {
   const withScheme = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`
   try {
     const url = new URL(withScheme)
-    if (!url.port) url.port = "4096"
+    if (!url.port) url.port = FALLBACK_PORT
     if (LOOPBACK_HOSTS.has(url.hostname.toLowerCase())) url.hostname = "localhost"
     if (url.pathname !== "/") url.pathname = "/"
     return url.origin
@@ -56,17 +59,32 @@ export function normalizeOrigin(input: string): string | null {
   }
 }
 
-function detectProduct(config: ServerConfig | undefined): ServerProduct {
-  const schema = config?.$schema ?? ""
-  if (/kilo/i.test(schema)) return "kilo"
-  if (/opencode/i.test(schema)) return "opencode"
-  return "unknown"
+interface InfoResponse {
+  version?: string
+  pid?: number
+  urls?: string[]
+  paths?: Record<string, string>
+  capabilities?: Record<string, unknown>
+}
+
+interface LocationResponse {
+  directory?: string
+}
+
+function authHeader(credentials?: Credentials): Record<string, string> {
+  if (!credentials?.password) return {}
+  const username = credentials.username || DEFAULT_USERNAME
+  return { Authorization: `Basic ${btoa(`${username}:${credentials.password}`)}` }
 }
 
 /**
- * Probe a single origin. Returns `null` if nothing that looks like a
- * kilo/opencode server answers. If the server answers with 401 the instance is
- * still reported so the caller can request credentials.
+ * Probe a single origin for an opencode v2 server.
+ *
+ * Detection uses `GET /api/info`, which every v2 server exposes and which
+ * answers 401 (rather than 404) when a password is set — that is how an origin
+ * is reported as *password required*. Returns `null` for anything else: an
+ * older Kilo/opencode v1 server answers 404 there, and the v2 SPA fallback
+ * replies with HTML, which fails the JSON shape check.
  */
 export async function probeInstance(
   input: string,
@@ -78,39 +96,35 @@ export async function probeInstance(
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
-  const client = new ServerClient(origin, credentials)
+  const headers = authHeader(credentials)
   try {
-    let health: { healthy: boolean; version: string }
-    try {
-      health = await client.health(controller.signal)
-    } catch (error) {
-      if (error instanceof ServerError && error.unauthorized) {
-        return {
-          id: origin,
-          origin,
-          product: "unknown",
-          version: "unknown",
-          requiresAuth: true,
-        }
-      }
-      return null
+    const res = await fetch(`${origin}/api/info`, { headers, signal: controller.signal })
+    if (res.status === 401) {
+      return { id: origin, origin, product: "unknown", version: "unknown", requiresAuth: true }
     }
-    if (!health?.healthy) return null
+    if (!res.ok) return null
 
-    let config: ServerConfig | undefined
+    const type = res.headers.get("content-type") ?? ""
+    if (!type.includes("json")) return null
+    const info = (await res.json().catch(() => null)) as InfoResponse | null
+    if (!info || typeof info.version !== "string") return null
+    // Require a hallmark of the v2 info payload so the SPA's HTML shell (which
+    // some proxies return with 200) cannot be mistaken for a server.
+    if (typeof info.pid !== "number" && !info.capabilities) return null
+
     let directory: string | undefined
     try {
-      config = await client.config({ signal: controller.signal })
-      directory = (await client.path({ signal: controller.signal })).worktree
+      const locationRes = await fetch(`${origin}/api/location`, { headers, signal: controller.signal })
+      if (locationRes.ok) directory = ((await locationRes.json()) as LocationResponse)?.directory
     } catch {
-      /* config/path are best-effort */
+      /* /api/location is best-effort */
     }
 
     return {
       id: origin,
       origin,
-      product: detectProduct(config),
-      version: health.version || "unknown",
+      product: "opencode",
+      version: info.version,
       directory,
       requiresAuth: false,
     }
@@ -155,6 +169,8 @@ export async function discoverInstances(opts: DiscoverOptions = {}): Promise<Ins
   }
 
   await Promise.all(Array.from({ length: Math.min(concurrency, list.length) }, worker))
-  results.sort((a, b) => (a.product === b.product ? 0 : a.product === "kilo" ? -1 : 1))
-  return results
+  return results.sort((a, b) => {
+    if (a.requiresAuth !== b.requiresAuth) return a.requiresAuth ? 1 : -1
+    return DEFAULT_PORTS.indexOf(Number(new URL(a.origin).port)) - DEFAULT_PORTS.indexOf(Number(new URL(b.origin).port))
+  })
 }

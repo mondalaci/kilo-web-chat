@@ -13,10 +13,12 @@ import {
   ComboboxViewport,
 } from "reka-ui"
 import { Check, ChevronDown, Gauge } from "lucide-vue-next"
+import { useApp } from "@/stores/app"
 import { useServer } from "@/stores/server"
 import { openRequests, shortcutsVisible } from "@/stores/shortcuts"
 
-const { selectedModelVariants, selectedVariant, setVariant } = useServer()
+const { setVariant } = useApp()
+const { selectedModelVariants, selectedVariant } = useServer()
 
 const open = ref(false)
 const query = ref("")
@@ -30,7 +32,7 @@ const selectedKey = computed<string>({
   get: () => selectedVariant.value ?? "",
   set: (value) => {
     if (!value) return
-    setVariant(value)
+    void setVariant(value)
     open.value = false
   },
 })

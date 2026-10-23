@@ -73,7 +73,7 @@ async function run(raw: string) {
       }
       if (!done) {
         const list = active
-          ? await app.sessions.query(active, { directory: directory.value, search, limit: 100000 })
+          ? await app.sessions.query(active, { directory: directory.value, search, limit: 200 })
           : []
         if (seq !== requestSeq) return
         hits.value = titleHits(list)
@@ -108,7 +108,11 @@ async function showAll() {
       mode.value = "content"
     } catch {
       mode.value = "fallback"
-      if (active) list = titleHits(await app.sessions.query(active, { directory: directory.value, limit: 100000 }))
+      if (active) {
+        // Page through the server's own session list instead.
+        list = titleHits(await app.sessions.queryAll(active, directory.value))
+        total.value = list.length
+      }
     }
     if (seq !== requestSeq) return
     hits.value = list
@@ -153,10 +157,10 @@ const modeLabel = computed(() =>
 )
 const modeTitle = computed(() =>
   mode.value === "content"
-    ? "Using the local kilo-search service (FTS5/BM25 over message text)"
+    ? "Using the local content-search service (FTS5/BM25 over message text)"
     : mode.value === "fallback"
-      ? "kilo-search is unreachable — matching conversation titles only"
-      : "Checking the local kilo-search service…",
+      ? "The content-search service is unreachable — matching conversation titles on the server"
+      : "Checking the local content-search service…",
 )
 
 async function open(hit: Hit) {

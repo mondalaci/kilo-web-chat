@@ -1,23 +1,58 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import { Check, ChevronRight, CircleAlert, Terminal } from "lucide-vue-next"
-import type { ToolPart } from "@/api/types"
-import { prettyJson, toolSummary } from "@/utils/format"
+import type { AssistantTool } from "@/api/types"
+import { toolSummary } from "@/utils/format"
+import { toolFileView, type FileView } from "@/utils/file"
+import JsonBlock from "./JsonBlock.vue"
+import PartFile from "./PartFile.vue"
 import Spinner from "./Spinner.vue"
 
-const props = defineProps<{ part: ToolPart }>()
+const props = defineProps<{ part: AssistantTool }>()
 const open = ref(false)
 
 const state = computed(() => props.part.state)
-const summary = computed(() => toolSummary(props.part.tool, state.value.input))
-const title = computed(() => ("title" in state.value && state.value.title) || summary.value || props.part.tool)
-const inputText = computed(() => JSON.stringify(state.value.input ?? {}, null, 2))
-const output = computed(() => {
-  if (state.value.status === "completed") return state.value.output
-  if (state.value.status === "error") return state.value.error
+
+const inputObject = computed<Record<string, unknown> | null>(() =>
+  state.value.status === "streaming" ? null : (state.value.input as Record<string, unknown>),
+)
+
+const summary = computed(() => toolSummary(props.part.name, inputObject.value ?? undefined))
+const title = computed(() => summary.value || props.part.name || "tool")
+
+/** The tool arguments, pretty-printed once they are valid JSON. */
+const inputText = computed(() => {
+  if (state.value.status === "streaming") return state.value.input
+  return JSON.stringify(state.value.input ?? {}, null, 2)
+})
+
+function textOf(content: Array<{ type: string; text?: string }> | undefined): string {
+  return (content ?? [])
+    .filter((item) => item.type === "text")
+    .map((item) => item.text ?? "")
+    .filter(Boolean)
+    .join("\n")
+}
+
+const outputText = computed(() => {
+  if (state.value.status === "completed") return textOf(state.value.content)
+  if (state.value.status === "error") {
+    return [state.value.error?.message, textOf(state.value.content)].filter(Boolean).join("\n")
+  }
   return ""
 })
-const outputText = computed(() => prettyJson(output.value))
+
+const files = computed<FileView[]>(() => {
+  const current = state.value
+  if (current.status !== "completed" && current.status !== "error") return []
+  const out: FileView[] = []
+  for (const item of current.content ?? []) {
+    if (item.type === "file") out.push(toolFileView(item))
+  }
+  return out
+})
+
+const busy = computed(() => state.value.status === "streaming" || state.value.status === "running")
 </script>
 
 <template>
@@ -25,10 +60,10 @@ const outputText = computed(() => prettyJson(output.value))
     <button class="head" @click="open = !open">
       <ChevronRight :size="14" class="chev" :class="{ open }" />
       <Terminal :size="14" class="tool-icon" />
-      <span class="tool-name">{{ part.tool }}</span>
+      <span class="tool-name">{{ part.name }}</span>
       <span class="tool-title">{{ title }}</span>
       <span class="status">
-        <Spinner v-if="state.status === 'running' || state.status === 'pending'" :size="12" />
+        <Spinner v-if="busy" :size="12" />
         <Check v-else-if="state.status === 'completed'" :size="14" class="ok" />
         <CircleAlert v-else :size="14" class="err" />
       </span>
@@ -36,11 +71,15 @@ const outputText = computed(() => prettyJson(output.value))
     <div v-show="open" class="body">
       <div class="section">
         <div class="label">Input</div>
-        <pre>{{ inputText }}</pre>
+        <JsonBlock :text="inputText" />
       </div>
-      <div v-if="output" class="section">
+      <div v-if="outputText" class="section">
         <div class="label">Output</div>
-        <pre>{{ outputText }}</pre>
+        <JsonBlock :text="outputText" />
+      </div>
+      <div v-if="files.length" class="section">
+        <div class="label">Files</div>
+        <PartFile v-for="(file, index) in files" :key="index" :file="file" />
       </div>
     </div>
   </div>
@@ -115,20 +154,5 @@ const outputText = computed(() => prettyJson(output.value))
   letter-spacing: 0.04em;
   color: var(--text-faint);
   margin-bottom: 4px;
-}
-pre {
-  margin: 0;
-  padding: 10px;
-  background: var(--code-bg);
-  border: 1px solid var(--code-border);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
-  overflow: auto;
-  max-height: 320px;
-  color: #d6deeb;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 </style>

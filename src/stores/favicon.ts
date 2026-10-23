@@ -1,4 +1,5 @@
 import { computed, onScopeDispose, watch } from "vue"
+import { BRAND_COLOR, BRAND_LETTER } from "@/brand"
 import { useChat } from "./chat"
 
 /**
@@ -13,7 +14,7 @@ import { useChat } from "./chat"
 const SIZE = 64
 const FRAME_COUNT = 12
 const FRAME_MS = 80
-const BRAND = "#c96442"
+const BRAND = BRAND_COLOR
 
 let frames: string[] | null = null
 let originalHref: string | null = null
@@ -46,7 +47,7 @@ function renderFrame(ctx: CanvasRenderingContext2D, index: number) {
   ctx.font = "700 38px system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  ctx.fillText("K", SIZE / 2, SIZE / 2 + 1)
+  ctx.fillText(BRAND_LETTER, SIZE / 2, SIZE / 2 + 1)
   ctx.globalAlpha = 1
 
   const angle = (index / FRAME_COUNT) * Math.PI * 2

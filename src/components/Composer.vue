@@ -6,6 +6,7 @@ import ModelSelector from "./ModelSelector.vue"
 import VariantSelector from "./VariantSelector.vue"
 import { useApp } from "@/stores/app"
 import { addFile, attachments, clearAttachments, composerFocusRequest, draft, removeAttachment } from "@/stores/draft"
+import { acceptsImages } from "@/api/types"
 import { useServer } from "@/stores/server"
 import { shortcutsVisible } from "@/stores/shortcuts"
 
@@ -21,7 +22,7 @@ const dragging = ref(false)
 const isImage = (mime: string) => mime.startsWith("image/")
 
 const attachmentsUnsupported = () =>
-  attachments.value.length > 0 && selectedModelInfo.value != null && !selectedModelInfo.value.capabilities?.attachment
+  attachments.value.length > 0 && selectedModelInfo.value != null && !acceptsImages(selectedModelInfo.value)
 
 function resize() {
   const el = textarea.value
@@ -79,12 +80,9 @@ async function submit() {
   const hasFiles = attachments.value.length > 0
   if ((!text.trim() && !hasFiles) || sending.value) return
 
-  const files = attachments.value.map((item) => ({
-    type: "file" as const,
-    mime: item.mime,
-    url: item.url,
-    filename: item.filename,
-  }))
+  // The v2 prompt API references attachments by URI; a self-contained
+  // `data:` URL is accepted for files that only exist in the browser.
+  const files = attachments.value.map((item) => ({ uri: item.url, name: item.filename }))
   const pending = [...attachments.value]
 
   draft.value = ""

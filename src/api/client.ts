@@ -1,20 +1,22 @@
+import { ClientError, OpenCode, isUnauthorizedError } from "@opencode/client"
 import type {
   Agent,
-  Command,
-  GlobalHealth,
-  MessageWithParts,
+  ConfigEntry,
+  FormAnswer,
+  FormInfo,
+  LocationPublicInfo,
+  Model,
   ModelRef,
-  ModelState,
-  PathInfo,
-  Project,
-  ProviderList,
-  ServerConfig,
-  SessionInfo,
-  ServerEvent,
   PermissionRequest,
-  QuestionRequest,
-  Todo,
-  ToolListItem,
+  Project,
+  SessionInfo,
+  SessionMessageID,
+  SessionMessageInfo,
+  SessionStatus,
+  SkillInfo,
+  Command,
+  Provider,
+  V2Event,
 } from "./types"
 
 export interface Credentials {
@@ -22,13 +24,16 @@ export interface Credentials {
   password: string
 }
 
+/** Username the opencode server expects alongside its service password. */
+export const DEFAULT_USERNAME = "opencode"
+
+/** A normalized transport/HTTP failure the UI can present. */
 export class ServerError extends Error {
   constructor(
     public status: number,
-    public statusText: string,
-    public body: string,
+    message: string,
   ) {
-    super(`HTTP ${status} ${statusText}${body ? `: ${body.slice(0, 300)}` : ""}`)
+    super(message)
     this.name = "ServerError"
   }
 
@@ -37,287 +42,355 @@ export class ServerError extends Error {
   }
 }
 
-export interface RequestOptions {
-  method?: string
-  /** Instance directory (project) to scope the request to. */
-  directory?: string
-  query?: Record<string, string | number | boolean | undefined>
-  body?: unknown
-  signal?: AbortSignal
-  headers?: Record<string, string>
-  /** Override the default request deadline in ms; `0` disables it. */
-  timeoutMs?: number
-}
-
 /**
- * A request that never settles keeps its socket open forever. A handful of
- * those exhaust the browser's per-origin connection pool, after which every
- * later request (health probes included) queues indefinitely and the app looks
- * dead. Giving each request a deadline keeps a stalled response from wedging
- * the whole origin.
+ * Declared API failures (the generated client throws tagged errors such as
+ * `UnauthorizedError`) and transport failures are folded into one error type so
+ * callers do not need to know which layer failed.
  */
-const DEFAULT_TIMEOUT_MS = 30_000
+export function toServerError(error: unknown): ServerError {
+  if (error instanceof ServerError) return error
+  const tag = (error as { _tag?: string } | null)?._tag
+  if (isUnauthorizedError(error) || tag === "UnauthorizedError") {
+    return new ServerError(401, "Authentication required")
+  }
+  if (tag === "SessionNotFoundError") return new ServerError(404, "Session not found")
+  if (tag === "LocationNotFoundError") return new ServerError(404, "Location not found")
+  if (error instanceof ClientError) return new ServerError(0, error.message)
+  if (error instanceof Error) return new ServerError(0, error.message)
+  return new ServerError(0, String(error))
+}
 
-/** Combine a caller signal with a timeout into one abortable signal. */
-function withDeadline(signal: AbortSignal | undefined, timeoutMs: number) {
-  const controller = new AbortController()
-  const timer =
-    timeoutMs > 0
-      ? setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs} ms`)), timeoutMs)
-      : undefined
-  const forward = () => controller.abort(signal?.reason)
-  if (signal) {
-    if (signal.aborted) forward()
-    else signal.addEventListener("abort", forward, { once: true })
-  }
-  return {
-    signal: controller.signal,
-    cleanup() {
-      if (timer) clearTimeout(timer)
-      signal?.removeEventListener("abort", forward)
-    },
-  }
+export interface SessionPage {
+  data: SessionInfo[]
+  /** Opaque cursor for the next page, or null at the end of the list. */
+  next: string | null
+}
+
+export interface MessagePage {
+  data: SessionMessageInfo[]
+  /** Opaque cursor for the page before this one, or null at the start. */
+  previous: string | null
+}
+
+export interface PromptFileInput {
+  /** A `data:` URL (`data:<mime>;base64,<payload>`) or a file/http URI. */
+  uri: string
+  name?: string
+}
+
+export interface ConfigValues {
+  /** Merged `model` string (`provider/model`) from the config documents. */
+  model?: string
+  defaultAgent?: string
+  username?: string
 }
 
 /**
- * Thin client over the opencode v1 / kilo HTTP API.
+ * Thin wrapper over the generated `@opencode/client` client.
  *
- * Auth is HTTP Basic, matching the server's optional `KILO_SERVER_PASSWORD`.
- * All instance-scoped endpoints accept a `directory` query parameter that
- * selects the project instance on the server.
+ * Its job is to (a) attach the server's HTTP Basic credentials, (b) scope
+ * calls to the selected project directory and (c) normalize errors, so the
+ * stores never deal with transport details.
  */
 export class ServerClient {
   readonly origin: string
-  private authHeader?: string
+  private readonly sdk: ReturnType<typeof OpenCode.make>
 
   constructor(origin: string, credentials?: Credentials) {
     this.origin = origin.replace(/\/+$/, "")
-    if (credentials?.password) {
-      const token = btoa(`${credentials.username || "kilo"}:${credentials.password}`)
-      this.authHeader = `Basic ${token}`
-    }
+    const headers = credentials?.password
+      ? { authorization: `Basic ${btoa(`${credentials.username || DEFAULT_USERNAME}:${credentials.password}`)}` }
+      : undefined
+    this.sdk = OpenCode.make({ baseUrl: this.origin, headers })
   }
 
-  private url(path: string, opts?: RequestOptions): string {
-    const url = new URL(this.origin + path)
-    if (opts?.directory) url.searchParams.set("directory", opts.directory)
-    for (const [key, value] of Object.entries(opts?.query ?? {})) {
-      if (value !== undefined && value !== null) url.searchParams.set(key, String(value))
-    }
-    return url.toString()
+  /** The raw generated client, for call sites this wrapper does not cover. */
+  get api() {
+    return this.sdk
   }
 
-  private headers(extra?: Record<string, string>, body?: unknown): HeadersInit {
-    const headers: Record<string, string> = { Accept: "application/json", ...extra }
-    if (this.authHeader) headers.Authorization = this.authHeader
-    if (body !== undefined) headers["Content-Type"] = "application/json"
-    return headers
+  private static location(directory?: string | null) {
+    return directory ? { location: { directory } } : undefined
   }
 
-  async request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-    const { signal, cleanup } = withDeadline(opts.signal, opts.timeoutMs ?? DEFAULT_TIMEOUT_MS)
-    try {
-      const res = await fetch(this.url(path, opts), {
-        method: opts.method ?? "GET",
-        headers: this.headers(opts.headers, opts.body),
-        body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-        signal,
-      })
-      if (!res.ok) {
-        const body = await res.text().catch(() => "")
-        throw new ServerError(res.status, res.statusText, body)
+  private static wrap<T>(promise: Promise<T>): Promise<T> {
+    return promise.catch((error: unknown) => {
+      throw toServerError(error)
+    })
+  }
+
+  /* --------------------------------- server -------------------------------- */
+
+  async info() {
+    return ServerClient.wrap(this.sdk.server.info())
+  }
+
+  async locationInfo(directory?: string | null) {
+    return ServerClient.wrap<LocationPublicInfo>(
+      this.sdk.location.get(ServerClient.location(directory)),
+    )
+  }
+
+  /* ------------------------------ configuration ---------------------------- */
+
+  async agents(directory?: string | null): Promise<Agent[]> {
+    const result = await ServerClient.wrap(this.sdk.agent.list(ServerClient.location(directory)))
+    return result.data
+  }
+
+  async models(directory?: string | null): Promise<Model[]> {
+    const result = await ServerClient.wrap(
+      this.sdk.model.list(ServerClient.location(directory)),
+    )
+    return result.data
+  }
+
+  /** The model the server would pick when a session does not name one. */
+  async defaultModel(directory?: string | null): Promise<Model | null> {
+    const result = await ServerClient.wrap(
+      this.sdk.model.default(ServerClient.location(directory)),
+    )
+    return result.data
+  }
+
+  async providers(directory?: string | null): Promise<Provider[]> {
+    const result = await ServerClient.wrap(this.sdk.provider.list(ServerClient.location(directory)))
+    return result.data
+  }
+
+  async configs(directory?: string | null): Promise<ConfigEntry[]> {
+    return ServerClient.wrap(this.sdk.config.get(ServerClient.location(directory)))
+  }
+
+  /**
+   * Merge the config documents into the handful of values the app needs.
+   * Later entries win, matching the server's own merge order.
+   */
+  async configValues(directory?: string | null): Promise<ConfigValues> {
+    const entries = await this.configs(directory)
+    const values: ConfigValues = {}
+    for (const entry of entries) {
+      if (entry.type !== "document") continue
+      const info = entry.info ?? {}
+      const model = info.model
+      if (typeof model === "string") values.model = model
+      else if (model && typeof model === "object" && "providerID" in model && "model" in model) {
+        values.model = `${model.providerID}/${model.model}`
       }
-      if (res.status === 204) return undefined as T
-      const text = await res.text()
-      if (!text) return undefined as T
-      return JSON.parse(text) as T
-    } finally {
-      cleanup()
+      if (typeof info.default_agent === "string") values.defaultAgent = info.default_agent
+      if (typeof info.username === "string") values.username = info.username
     }
+    return values
   }
 
-  /* ------------------------------ health/config ----------------------------- */
-
-  health(signal?: AbortSignal) {
-    return this.request<GlobalHealth>("/global/health", { signal })
+  /** Active provider credentials, keyed by integration id. */
+  async connectedIntegrations(): Promise<Set<string>> {
+    const connected = new Set<string>()
+    try {
+      for (const credential of await this.sdk.credential.list()) {
+        if (credential.active) connected.add(credential.integrationID)
+      }
+    } catch {
+      /* credentials are optional; the picker then marks nothing as connected */
+    }
+    return connected
   }
 
-  path(opts: RequestOptions = {}) {
-    return this.request<PathInfo>("/path", opts)
+  /** The stored credential value for an integration, when one is active. */
+  async credentialKey(integrationID: string): Promise<string | null> {
+    try {
+      const credentials = await this.sdk.credential.list()
+      const credential = credentials.find((item) => item.active && item.integrationID === integrationID)
+      const value = credential?.value
+      if (value && value.type === "key") return value.key
+    } catch {
+      /* fall through */
+    }
+    return null
   }
 
-  projects(opts: RequestOptions = {}) {
-    return this.request<Project[]>("/project", opts)
+  async projects(): Promise<Project[]> {
+    return ServerClient.wrap(this.sdk.project.list())
   }
 
-  config(opts: RequestOptions = {}) {
-    return this.request<ServerConfig>("/config", opts)
+  async commands(directory?: string | null): Promise<Command[]> {
+    const result = await ServerClient.wrap(this.sdk.command.list(ServerClient.location(directory)))
+    return result.data
   }
 
-  agents(opts: RequestOptions = {}) {
-    return this.request<Agent[]>("/agent", opts)
-  }
-
-  providers(opts: RequestOptions = {}) {
-    return this.request<ProviderList>("/provider", opts)
-  }
-
-  modelState(opts: RequestOptions = {}) {
-    return this.request<ModelState>("/config/model-state", opts)
-  }
-
-  commands(opts: RequestOptions = {}) {
-    return this.request<Command[]>("/command", opts)
-  }
-
-  toolIds(opts: RequestOptions = {}) {
-    return this.request<string[]>("/experimental/tool/ids", opts)
-  }
-
-  tools(opts: RequestOptions = {}) {
-    return this.request<ToolListItem[]>("/experimental/tool", opts)
+  async skills(directory?: string | null): Promise<SkillInfo[]> {
+    const result = await ServerClient.wrap(this.sdk.skill.list(ServerClient.location(directory)))
+    return result.data
   }
 
   /* -------------------------------- sessions -------------------------------- */
 
-  listSessions(opts: RequestOptions = {}) {
-    return this.request<SessionInfo[]>("/session", { ...opts, query: { roots: "true", ...opts.query } })
+  async listSessions(
+    directory?: string | null,
+    opts: { limit?: number; search?: string; cursor?: string } = {},
+  ): Promise<SessionPage> {
+    const page = await ServerClient.wrap(
+      this.sdk.session.list({
+        directory: directory ?? undefined,
+        limit: opts.limit ?? 50,
+        search: opts.search,
+        cursor: opts.cursor,
+        parentID: "null",
+      }),
+    )
+    return { data: page.data, next: page.cursor.next ?? null }
   }
 
-  createSession(body: { title?: string; agent?: string; model?: ModelRef; parentID?: string }, opts: RequestOptions = {}) {
-    // The create endpoint names the model field `id`, while prompt endpoints use
-    // `modelID`. Normalize here so callers can keep passing a ModelRef.
-    const payload = {
-      ...body,
-      model: body.model
-        ? { id: body.model.modelID, providerID: body.model.providerID, variant: body.model.variant }
-        : undefined,
+  async createSession(
+    body: { title?: string; agent?: string; model?: ModelRef },
+    directory?: string | null,
+  ): Promise<SessionInfo> {
+    return ServerClient.wrap(
+      this.sdk.session.create({
+        title: body.title,
+        agent: body.agent,
+        model: body.model ? { id: body.model.id, providerID: body.model.providerID, variant: body.model.variant } : undefined,
+        location: directory ? { directory } : undefined,
+      }),
+    )
+  }
+
+  async getSession(sessionID: string): Promise<SessionInfo> {
+    return ServerClient.wrap(this.sdk.session.get({ sessionID }))
+  }
+
+  async updateSession(sessionID: string, body: { title?: string }): Promise<void> {
+    return ServerClient.wrap(this.sdk.session.update({ sessionID, title: body.title }))
+  }
+
+  async removeSession(sessionID: string): Promise<void> {
+    return ServerClient.wrap(this.sdk.session.remove({ sessionID }))
+  }
+
+  /** Sessions currently executing on the server, keyed by session id. */
+  async activeSessions(): Promise<Record<string, SessionStatus>> {
+    const active = await ServerClient.wrap(this.sdk.session.active()).catch(() => ({}))
+    const statuses: Record<string, SessionStatus> = {}
+    for (const id of Object.keys(active)) statuses[id] = { type: "busy" }
+    return statuses
+  }
+
+  /* -------------------------------- messages -------------------------------- */
+
+  /** Newest page of messages first, matching the server's default order. */
+  async listMessages(sessionID: string, opts: { limit?: number; cursor?: string } = {}): Promise<MessagePage> {
+    const page = await ServerClient.wrap(
+      this.sdk.message.list({ sessionID, limit: opts.limit ?? 200, cursor: opts.cursor }),
+    )
+    return { data: page.data, previous: page.cursor.previous ?? null }
+  }
+
+  /**
+   * Every message in a session, oldest first. The endpoint pages from the
+   * newest message backwards, so walk the `previous` cursors and reverse.
+   */
+  async allMessages(sessionID: string, pageSize = 200): Promise<SessionMessageInfo[]> {
+    const newestFirst: SessionMessageInfo[] = []
+    let page = await this.listMessages(sessionID, { limit: pageSize })
+    newestFirst.push(...page.data)
+    let guard = 0
+    while (page.previous && page.data.length > 0 && guard++ < 200) {
+      page = await this.listMessages(sessionID, { limit: pageSize, cursor: page.previous })
+      newestFirst.push(...page.data)
     }
-    return this.request<SessionInfo>("/session", { ...opts, method: "POST", body: payload })
+    return newestFirst.reverse()
   }
 
-  getSession(sessionID: string, opts: RequestOptions = {}) {
-    return this.request<SessionInfo>(`/session/${sessionID}`, opts)
-  }
-
-  updateSession(sessionID: string, body: { title?: string }, opts: RequestOptions = {}) {
-    return this.request<SessionInfo>(`/session/${sessionID}`, { ...opts, method: "PATCH", body })
-  }
-
-  deleteSession(sessionID: string, opts: RequestOptions = {}) {
-    return this.request<boolean>(`/session/${sessionID}`, { ...opts, method: "DELETE" })
-  }
-
-  shareSession(sessionID: string, opts: RequestOptions = {}) {
-    return this.request<SessionInfo>(`/session/${sessionID}/share`, { ...opts, method: "POST" })
-  }
-
-  unshareSession(sessionID: string, opts: RequestOptions = {}) {
-    return this.request<SessionInfo>(`/session/${sessionID}/share`, { ...opts, method: "DELETE" })
-  }
-
-  messages(sessionID: string, opts: RequestOptions = {}) {
-    return this.request<MessageWithParts[]>(`/session/${sessionID}/message`, opts)
-  }
-
-  todos(sessionID: string, opts: RequestOptions = {}) {
-    return this.request<Todo[]>(`/session/${sessionID}/todo`, opts)
-  }
-
-  prompt(
+  async prompt(
     sessionID: string,
-    body: {
-      parts: Array<{ type: "text"; text: string } | { type: "file"; mime: string; url: string; filename?: string }>
-      model?: ModelRef
-      agent?: string
-      variant?: string
-      tools?: Record<string, boolean>
-      messageID?: string
-      system?: string
-    },
-    opts: RequestOptions = {},
-  ) {
-    return this.request<void>(`/session/${sessionID}/prompt_async`, { ...opts, method: "POST", body })
+    body: { text: string; files?: PromptFileInput[] },
+  ): Promise<SessionMessageID> {
+    const result = await ServerClient.wrap(
+      this.sdk.session.prompt({
+        sessionID,
+        text: body.text,
+        files: body.files?.map((file) => ({ uri: file.uri, name: file.name })),
+      }),
+    )
+    return result.id
   }
 
-  command(
+  async interrupt(sessionID: string): Promise<void> {
+    await ServerClient.wrap(this.sdk.session.interrupt({ sessionID }))
+  }
+
+  async switchAgent(sessionID: string, agent: string): Promise<void> {
+    await ServerClient.wrap(this.sdk.session.switchAgent({ sessionID, agent }))
+  }
+
+  async switchModel(sessionID: string, model: ModelRef): Promise<void> {
+    await ServerClient.wrap(
+      this.sdk.session.switchModel({
+        sessionID,
+        model: { id: model.id, providerID: model.providerID, variant: model.variant },
+      }),
+    )
+  }
+
+  /* --------------------------- permission and forms -------------------------- */
+
+  async pendingPermissions(directory?: string | null): Promise<PermissionRequest[]> {
+    const result = await ServerClient.wrap(
+      this.sdk.permission.request.list(ServerClient.location(directory)),
+    )
+    return result.data
+  }
+
+  async replyPermission(
     sessionID: string,
-    body: { command: string; arguments: string; agent?: string; model?: string; variant?: string },
-    opts: RequestOptions = {},
-  ) {
-    return this.request<unknown>(`/session/${sessionID}/command`, { ...opts, method: "POST", body })
+    requestID: string,
+    decision: "once" | "always" | "reject",
+  ): Promise<void> {
+    await ServerClient.wrap(this.sdk.permission.reply({ sessionID, requestID, decision }))
   }
 
-  abort(sessionID: string, opts: RequestOptions = {}) {
-    return this.request<boolean>(`/session/${sessionID}/abort`, { ...opts, method: "POST" })
+  /** Pending forms (the agent's `question` tool) for the whole location. */
+  async pendingForms(directory?: string | null): Promise<FormInfo[]> {
+    const result = await ServerClient.wrap(this.sdk.form.list(ServerClient.location(directory)))
+    return result.data
   }
 
-  /* ------------------------- permissions and questions ---------------------- */
-
-  listPermissions(opts: RequestOptions = {}) {
-    return this.request<PermissionRequest[]>("/permission", opts)
+  async sessionForms(sessionID: string): Promise<FormInfo[]> {
+    return ServerClient.wrap(this.sdk.session.form.list({ sessionID })).catch(() => [] as FormInfo[])
   }
 
-  replyPermission(requestID: string, reply: "once" | "always" | "reject", opts: RequestOptions = {}) {
-    return this.request<boolean>(`/permission/${requestID}/reply`, { ...opts, method: "POST", body: { reply } })
+  async replyForm(sessionID: string, formID: string, answer: FormAnswer): Promise<void> {
+    await ServerClient.wrap(this.sdk.session.form.reply({ sessionID, formID, answer }))
   }
 
-  listQuestions(opts: RequestOptions = {}) {
-    return this.request<QuestionRequest[]>("/question", opts)
+  async cancelForm(sessionID: string, formID: string): Promise<void> {
+    await ServerClient.wrap(this.sdk.session.form.cancel({ sessionID, formID }))
   }
 
-  replyQuestion(requestID: string, answers: string[][], opts: RequestOptions = {}) {
-    return this.request<boolean>(`/question/${requestID}/reply`, { ...opts, method: "POST", body: { answers } })
-  }
-
-  rejectQuestion(requestID: string, opts: RequestOptions = {}) {
-    return this.request<boolean>(`/question/${requestID}/reject`, { ...opts, method: "POST" })
-  }
-
-  /* ---------------------------------- SSE ----------------------------------- */
+  /* ---------------------------------- events --------------------------------- */
 
   /**
    * Subscribe to the instance event stream.
    *
-   * Uses `fetch` rather than `EventSource` so that Basic auth headers can be
-   * sent. Resolves when the stream ends (abort or error).
+   * The generated client already parses SSE frames and yields decoded events;
+   * this only translates transport failures. Resolves when the stream ends.
    */
   async subscribe(
-    onEvent: (event: ServerEvent) => void,
-    opts: { directory?: string; signal?: AbortSignal; onOpen?: () => void } = {},
+    onEvent: (event: V2Event) => void,
+    opts: { signal?: AbortSignal; onOpen?: () => void } = {},
   ): Promise<void> {
-    const res = await fetch(this.url("/event", { directory: opts.directory }), {
-      headers: this.headers({ Accept: "text/event-stream" }),
-      signal: opts.signal,
-    })
-    if (!res.ok || !res.body) {
-      const body = await res.text().catch(() => "")
-      throw new ServerError(res.status, res.statusText, body)
-    }
-    opts.onOpen?.()
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ""
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      let index: number
-      while ((index = buffer.indexOf("\n\n")) !== -1) {
-        const block = buffer.slice(0, index)
-        buffer = buffer.slice(index + 2)
-        const data = block
-          .split("\n")
-          .filter((line) => line.startsWith("data:"))
-          .map((line) => line.slice(5).trimStart())
-          .join("\n")
-        if (!data) continue
-        try {
-          onEvent(JSON.parse(data) as ServerEvent)
-        } catch {
-          /* ignore malformed frame */
+    let opened = false
+    try {
+      for await (const event of this.sdk.event.subscribe({ signal: opts.signal })) {
+        if (!opened) {
+          opened = true
+          opts.onOpen?.()
         }
+        onEvent(event)
       }
+    } catch (error) {
+      if (opts.signal?.aborted) return
+      throw toServerError(error)
     }
   }
 }

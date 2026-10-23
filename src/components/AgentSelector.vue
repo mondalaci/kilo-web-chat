@@ -13,10 +13,12 @@ import {
   ComboboxViewport,
 } from "reka-ui"
 import { Bot, Check, ChevronDown } from "lucide-vue-next"
+import { useApp } from "@/stores/app"
 import { useServer } from "@/stores/server"
 import { openRequests, shortcutsVisible } from "@/stores/shortcuts"
 
-const { modes, selectedAgent, setAgent } = useServer()
+const { setAgent } = useApp()
+const { modes, selectedAgent } = useServer()
 
 const open = ref(false)
 const query = ref("")
@@ -26,14 +28,13 @@ const selectedKey = computed<string>({
   get: () => selectedAgent.value,
   set: (value) => {
     if (!value || value === selectedAgent.value) return
-    setAgent(value)
+    void setAgent(value)
     open.value = false
   },
 })
 
-function displayValue(name: string) {
-  const agent = modes.value.find((item) => item.name === name)
-  return agent?.displayName ?? name
+function displayValue(id: string) {
+  return modes.value.find((agent) => agent.id === id)?.name ?? id
 }
 
 const filtered = computed(() => {
@@ -41,8 +42,8 @@ const filtered = computed(() => {
   if (!q) return modes.value
   return modes.value.filter(
     (agent) =>
-      agent.name.toLowerCase().includes(q) ||
-      (agent.displayName ?? "").toLowerCase().includes(q) ||
+      agent.id.toLowerCase().includes(q) ||
+      (agent.name ?? "").toLowerCase().includes(q) ||
       (agent.description ?? "").toLowerCase().includes(q),
   )
 })
@@ -116,13 +117,13 @@ watch(
           </ComboboxEmpty>
           <ComboboxItem
             v-for="agent in filtered"
-            :key="agent.name"
-            :value="agent.name"
-            :text-value="agent.displayName ?? agent.name"
+            :key="agent.id"
+            :value="agent.id"
+            :text-value="agent.name ?? agent.id"
             class="kilo-agent-option"
-            :class="{ 'is-active': agent.name === selectedAgent }"
+            :class="{ 'is-active': agent.id === selectedAgent }"
           >
-            <span class="kilo-agent-name">{{ agent.displayName ?? agent.name }}</span>
+            <span class="kilo-agent-name">{{ agent.name ?? agent.id }}</span>
             <span v-if="agent.description" class="kilo-agent-desc">{{ agent.description }}</span>
             <ComboboxItemIndicator class="kilo-agent-check"><Check :size="15" /></ComboboxItemIndicator>
           </ComboboxItem>

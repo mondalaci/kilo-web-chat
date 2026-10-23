@@ -1,26 +1,25 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import { Check, ChevronDown, ChevronRight, Copy, Download, File as FileIcon, ExternalLink } from "lucide-vue-next"
-import type { FilePart } from "@/api/types"
-import { dataUrlByteLength, dataUrlText, dataUrlToBlob, formatBytes, isDataUrl, isTextMime } from "@/utils/file"
+import { dataUrlByteLength, dataUrlText, dataUrlToBlob, formatBytes, isDataUrl, isHttpUrl, isTextMime, type FileView } from "@/utils/file"
 
-const props = defineProps<{ part: FilePart }>()
+const props = defineProps<{ file: FileView }>()
 
 /** Cap inline previews so a huge text file cannot freeze the view. */
 const MAX_PREVIEW = 100_000
 
-const url = computed(() => props.part.url ?? "")
-const mime = computed(() => props.part.mime ?? "")
-const name = computed(() => props.part.filename || mime.value || "file")
+const url = computed(() => props.file.url)
+const mime = computed(() => props.file.mime ?? "")
+const name = computed(() => props.file.name || mime.value || "file")
 
-const isImage = computed(
-  () => mime.value.startsWith("image/") && (isDataUrl(url.value) || /^https?:/.test(url.value)),
-)
-const isRemote = computed(() => /^https?:/.test(url.value))
-const canDecode = computed(() => isDataUrl(url.value))
-const size = computed(() => (canDecode.value ? dataUrlByteLength(url.value) : 0))
+/** Content that travels with the message (data URL) can be shown and saved. */
+const hasBytes = computed(() => props.file.inline && isDataUrl(url.value))
+const isRemote = computed(() => isHttpUrl(url.value))
+const isImage = computed(() => mime.value.startsWith("image/") && (hasBytes.value || isRemote.value))
+const showable = computed(() => hasBytes.value || isRemote.value)
+const size = computed(() => (hasBytes.value ? dataUrlByteLength(url.value) : 0))
 
-const previewText = computed(() => (canDecode.value && isTextMime(mime.value) ? dataUrlText(url.value) : null))
+const previewText = computed(() => (hasBytes.value && isTextMime(mime.value) ? dataUrlText(url.value) : null))
 const truncated = computed(() => previewText.value != null && previewText.value.length > MAX_PREVIEW)
 
 const expanded = ref(false)
@@ -31,16 +30,12 @@ function toggle() {
     window.open(url.value, "_blank", "noopener")
     return
   }
+  if (!showable.value) return
   expanded.value = !expanded.value
 }
 
-function objectUrl(): string | null {
-  if (!canDecode.value) return null
-  return URL.createObjectURL(dataUrlToBlob(url.value) ?? new Blob())
-}
-
 function download() {
-  const blob = canDecode.value ? dataUrlToBlob(url.value) : null
+  const blob = hasBytes.value ? dataUrlToBlob(url.value) : null
   const href = blob ? URL.createObjectURL(blob) : url.value
   const anchor = document.createElement("a")
   anchor.href = href
@@ -56,8 +51,9 @@ function openInTab() {
     window.open(url.value, "_blank", "noopener")
     return
   }
-  const href = objectUrl()
-  if (!href) return
+  const blob = hasBytes.value ? dataUrlToBlob(url.value) : null
+  if (!blob) return
+  const href = URL.createObjectURL(blob)
   window.open(href, "_blank", "noopener")
   setTimeout(() => URL.revokeObjectURL(href), 60_000)
 }
@@ -79,7 +75,13 @@ async function copy() {
     <img v-if="isImage" :src="url" :alt="name" />
 
     <template v-else>
-      <button type="button" class="file-chip" :title="isRemote ? `Open ${name}` : `Show ${name}`" @click="toggle">
+      <button
+        type="button"
+        class="file-chip"
+        :class="{ static: !showable }"
+        :title="isRemote ? `Open ${name}` : props.file.reference && !showable ? props.file.reference : `Show ${name}`"
+        @click="toggle"
+      >
         <ChevronDown v-if="expanded" :size="14" />
         <ChevronRight v-else :size="14" />
         <FileIcon :size="14" />
@@ -87,7 +89,7 @@ async function copy() {
         <span v-if="size" class="file-size">{{ formatBytes(size) }}</span>
       </button>
 
-      <div v-if="expanded && !isRemote" class="file-preview">
+      <div v-if="expanded && hasBytes" class="file-preview">
         <div class="preview-actions">
           <button type="button" title="Download" @click="download"><Download :size="13" /> Download</button>
           <button type="button" title="Open in a new tab" @click="openInTab"><ExternalLink :size="13" /> Open</button>
@@ -100,6 +102,7 @@ async function copy() {
         <pre v-if="previewText != null" class="preview-text">{{ truncated ? previewText.slice(0, MAX_PREVIEW) : previewText }}</pre>
         <p v-else class="preview-binary">No inline preview for {{ mime || "this file type" }}. Use Download or Open.</p>
       </div>
+      <p v-else-if="!showable && props.file.reference" class="file-reference">{{ props.file.reference }}</p>
     </template>
   </div>
 </template>
@@ -130,6 +133,9 @@ async function copy() {
 .file-chip:hover {
   border-color: var(--border-strong);
 }
+.file-chip.static {
+  cursor: default;
+}
 .file-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -138,6 +144,13 @@ async function copy() {
 .file-size {
   color: var(--text-muted);
   flex: none;
+}
+.file-reference {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
 }
 .file-preview {
   margin-top: 6px;

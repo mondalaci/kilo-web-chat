@@ -2,7 +2,7 @@ import { ref } from "vue"
 
 export type Theme = "dark" | "light"
 
-const KEY = "kilo-web-chat.theme"
+const KEY = "opencode-web-chat.theme"
 
 function initial(): Theme {
   const stored = localStorage.getItem(KEY)

@@ -1,5 +1,5 @@
 import { computed, ref } from "vue"
-import { useServer } from "./server"
+import { useConnection } from "./connection"
 
 /**
  * Text-to-speech for the `pronunciation` chat widget, backed by OpenRouter's
@@ -12,10 +12,10 @@ import { useServer } from "./server"
  *
  * Credentials, in priority order:
  *  1. a key the user pasted here (persisted in localStorage), else
- *  2. the connected Kilo server's `openrouter` key, which `/provider` already
- *     returns to this client (in memory only, never persisted here).
+ *  2. the openrouter credential the connected opencode server holds, read once
+ *     on demand (in memory only, never persisted here).
  *
- * The server only serves that key over its own (loopback, optionally
+ * The server only serves that credential over its own (loopback, optionally
  * password-protected) origin, so reading it here does not widen exposure beyond
  * the server's existing trust boundary.
  */
@@ -23,10 +23,10 @@ import { useServer } from "./server"
 const MODELS_URL = "https://openrouter.ai/api/v1/models?output_modalities=speech"
 const SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech"
 
-const MODEL_KEY = "kilo-web-chat.tts.model"
-const VOICE_KEY = "kilo-web-chat.tts.voice"
-const KEY_KEY = "kilo-web-chat.tts.key"
-const SLOW_KEY = "kilo-web-chat.tts.slow"
+const MODEL_KEY = "opencode-web-chat.tts.model"
+const VOICE_KEY = "opencode-web-chat.tts.voice"
+const KEY_KEY = "opencode-web-chat.tts.key"
+const SLOW_KEY = "opencode-web-chat.tts.slow"
 
 /** Preferred default when the catalog loads and nothing valid is remembered. */
 const DEFAULT_MODEL = "microsoft/mai-voice-2.1-flash"
@@ -68,11 +68,10 @@ const selectedVoice = ref(readStored(VOICE_KEY))
 const apiKey = ref(readStored(KEY_KEY))
 const slow = ref(readStored(SLOW_KEY) === "1")
 
-// The connected Kilo server's OpenRouter key, surfaced by its `/provider`
-// endpoint. Kept in memory only so we never copy the server secret into
-// localStorage.
-const server = useServer()
-const serverKey = computed(() => server.providers.value.find((provider) => provider.id === "openrouter")?.key ?? "")
+// The connected opencode server's OpenRouter credential, fetched on demand and
+// kept in memory only so we never copy the server secret into localStorage.
+const serverKey = ref("")
+let serverKeyLoaded = false
 
 /** Manual key wins; otherwise fall back to the connected server's key. */
 const effectiveKey = computed(() => apiKey.value || serverKey.value)
@@ -117,8 +116,18 @@ function selectModel(id: string) {
 }
 
 export function useSpeech() {
+  /** Read the server-held OpenRouter credential once, for the fallback key. */
+  async function loadServerKey() {
+    if (serverKeyLoaded) return
+    serverKeyLoaded = true
+    const client = useConnection().client.value
+    if (!client) return
+    serverKey.value = (await client.credentialKey("openrouter").catch(() => null)) ?? ""
+  }
+
   async function loadModels(force = false) {
     if (loadedOnce && !force) return
+    void loadServerKey()
     loading.value = true
     error.value = null
     try {
@@ -169,7 +178,7 @@ export function useSpeech() {
   /** Synthesize `input` and return playable audio. Throws a readable error. */
   async function synthesize(input: string): Promise<Blob> {
     const key = effectiveKey.value
-    if (!key) throw new Error("No OpenRouter key: connect to a Kilo server with openrouter, or paste a key.")
+    if (!key) throw new Error("No OpenRouter key: connect to an opencode server with openrouter, or paste a key.")
     const model = selectedModelID.value
     if (!model) throw new Error("Choose a speech model first.")
     const voice = selectedVoice.value || undefined
@@ -213,6 +222,7 @@ export function useSpeech() {
     setVoice,
     setApiKey,
     setSlow,
+    loadServerKey,
     synthesize,
   }
 }
@@ -240,7 +250,7 @@ function requestSpeech(
       Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
       "HTTP-Referer": window.location.origin,
-      "X-Title": "Kilo Web Chat",
+      "X-Title": "OpenCode Chat",
     },
     body: JSON.stringify(body),
   })

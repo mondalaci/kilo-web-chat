@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
 import { Check, Copy } from "lucide-vue-next"
-import type { ToolPart } from "@/api/types"
+import type { AssistantTool } from "@/api/types"
 import { composedMessage } from "@/utils/compose"
 
-const props = defineProps<{ part: ToolPart }>()
+const props = defineProps<{ part: AssistantTool }>()
 
 const variants = computed(() => composedMessage(props.part)?.variants ?? [])
 const copied = ref<string | null>(null)

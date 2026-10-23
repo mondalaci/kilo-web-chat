@@ -1,20 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import {
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuRoot,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "reka-ui"
-import { X, CircleAlert, Check, Copy, ExternalLink, Link2, Link2Off, Moon, Share2, Sun } from "lucide-vue-next"
-import type { AssistantMessage } from "@/api/types"
+import { X, CircleAlert, Check, Copy, Moon, Share2, Sun } from "lucide-vue-next"
+import type { SessionMessageAssistant } from "@/api/types"
 import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
 import Composer from "./Composer.vue"
 import PromptDock from "./PromptDock.vue"
-import { useApp } from "@/stores/app"
+import { TITLE_SUFFIX } from "@/brand"
+import { sessionURL, useApp } from "@/stores/app"
 import { requestComposerFocus } from "@/stores/draft"
 import { requestOpen, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
 import { searchOpen, openSearch } from "@/stores/search"
@@ -24,80 +17,25 @@ import { formatConversationDate, formatConversationDateTime, formatCost } from "
 const app = useApp()
 const { current, currentID } = app.sessions
 const { error, messages, isBusy } = app.chat
-const { providers, selectedModelInfo } = app.server
+const { models, selectedModelInfo } = app.server
 const { newChat } = app
 
-const shareState = ref<"idle" | "shared" | "copied" | "unshared">("idle")
+/** The per-chat link is the only shareable form a v2 server offers. */
+const copiedLink = ref(false)
 
-/** Whether the open session currently has a public share link. */
-const isShared = computed(() => Boolean(current.value?.share?.url))
-
-function flashShare(state: "shared" | "copied" | "unshared") {
-  shareState.value = state
-  setTimeout(() => {
-    shareState.value = "idle"
-  }, 1500)
-}
-
-const shareTitle = computed(() => {
-  if (shareState.value === "shared") return "Public link created"
-  if (shareState.value === "copied") return "Link copied"
-  if (shareState.value === "unshared") return "Sharing revoked"
-  return isShared.value ? "Shared — manage link" : "Share chat"
-})
-
-/** Create a public share link for the open session (open/copy it on success). */
-async function shareChat() {
+async function copyChatLink() {
   const sessionID = currentID.value
   if (!sessionID) return
-  const shared = await app.shareSession(sessionID)
-  if (shared) {
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: title.value, url: shared })
-        flashShare("shared")
-        return
-      } catch {
-        /* user cancelled */
-      }
-    }
-    window.open(shared, "_blank", "noopener")
-    flashShare("shared")
-    return
-  }
-  // Fall back to the local per-chat URL when the server cannot create a share.
-  const url = new URL(window.location.href)
-  url.searchParams.set("session", sessionID)
   try {
-    await navigator.clipboard.writeText(url.toString())
-    flashShare("copied")
+    await navigator.clipboard.writeText(sessionURL(sessionID))
+    copiedLink.value = true
+    setTimeout(() => (copiedLink.value = false), 1500)
   } catch {
     /* clipboard unavailable */
   }
 }
 
-const shareURL = computed(() => current.value?.share?.url ?? "")
-
-function openShare() {
-  if (shareURL.value) window.open(shareURL.value, "_blank", "noopener")
-}
-
-async function copyShare() {
-  if (!shareURL.value) return
-  try {
-    await navigator.clipboard.writeText(shareURL.value)
-    flashShare("copied")
-  } catch {
-    /* clipboard unavailable */
-  }
-}
-
-async function unshare() {
-  const sessionID = currentID.value
-  if (sessionID && (await app.unshareSession(sessionID))) flashShare("unshared")
-}
-
-const SIDEBAR_KEY = "kilo-web-chat.sidebar-width"
+const SIDEBAR_KEY = "opencode-web-chat.sidebar-width"
 const SIDEBAR_MIN = 180
 const SIDEBAR_MAX = 520
 const DEFAULT_SIDEBAR = 264
@@ -141,24 +79,24 @@ const title = computed(() => current.value?.title || "New chat")
 watch(
   title,
   (value) => {
-    document.title = current.value ? `${value} · Kilo Chat` : "Kilo Chat"
+    document.title = current.value ? `${value} · ${TITLE_SUFFIX}` : TITLE_SUFFIX
   },
   { immediate: true },
 )
 
-// Session cost: the higher of the session total and the sum of assistant message
-// costs, matching the TUI.
+// Session cost: the session total, which the server keeps up to date, with the
+// sum of assistant message costs as a fallback while streaming.
 const sessionCost = computed(() => {
-  const total = messages.value.reduce((sum, item) => (item.info.role === "assistant" ? sum + (item.info.cost ?? 0) : sum), 0)
+  const total = messages.value.reduce((sum, item) => (item.type === "assistant" ? sum + (item.cost ?? 0) : sum), 0)
   return Math.max(current.value?.cost ?? 0, total)
 })
 
 // Context usage is taken from the last assistant message that produced output.
-const lastAssistant = computed<AssistantMessage | null>(() => {
+const lastAssistant = computed<SessionMessageAssistant | null>(() => {
   const list = messages.value
   for (let i = list.length - 1; i >= 0; i--) {
-    const info = list[i].info
-    if (info.role === "assistant" && (info.tokens?.output ?? 0) > 0) return info
+    const message = list[i]
+    if (message.type === "assistant" && (message.tokens?.output ?? 0) > 0) return message
   }
   return null
 })
@@ -173,8 +111,8 @@ const contextTokens = computed(() => {
 
 const contextLimit = computed(() => {
   const info = lastAssistant.value
-  if (info) {
-    const model = providers.value.find((provider) => provider.id === info.providerID)?.models?.[info.modelID]
+  if (info?.model) {
+    const model = models.value.find((item) => item.providerID === info.model.providerID && item.id === info.model.id)
     if (model?.limit?.context) return model.limit.context
   }
   return selectedModelInfo.value?.limit?.context ?? 0
@@ -310,42 +248,15 @@ onBeforeUnmount(() => {
           <Sun v-if="theme === 'dark'" :size="16" />
           <Moon v-else :size="16" />
         </button>
-        <DropdownMenuRoot v-if="isShared">
-          <DropdownMenuTrigger as-child>
-            <button
-              class="share-btn"
-              :class="{ active: isShared || shareState !== 'idle' }"
-              :title="shareTitle"
-              aria-label="Manage share link"
-            >
-              <Check v-if="shareState !== 'idle'" :size="16" />
-              <Link2 v-else :size="16" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuPortal>
-            <DropdownMenuContent class="kilo-menu" :side-offset="4" align="end">
-              <DropdownMenuItem class="kilo-menu-item" @select="openShare">
-                <ExternalLink :size="14" /> Open public link
-              </DropdownMenuItem>
-              <DropdownMenuItem class="kilo-menu-item" @select="copyShare">
-                <Copy :size="14" /> Copy link
-              </DropdownMenuItem>
-              <DropdownMenuSeparator class="kilo-menu-sep" />
-              <DropdownMenuItem class="kilo-menu-item danger" @select="unshare">
-                <Link2Off :size="14" /> Unshare
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenuPortal>
-        </DropdownMenuRoot>
         <button
-          v-else
+          v-if="current"
           class="share-btn"
-          :class="{ active: shareState !== 'idle' }"
-          :title="shareTitle"
-          aria-label="Share chat"
-          @click="shareChat"
+          :class="{ active: copiedLink }"
+          :title="copiedLink ? 'Link copied' : 'Copy link to this chat'"
+          aria-label="Copy link to this chat"
+          @click="copyChatLink"
         >
-          <Check v-if="shareState !== 'idle'" :size="16" />
+          <Check v-if="copiedLink" :size="16" />
           <Share2 v-else :size="16" />
         </button>
       </header>

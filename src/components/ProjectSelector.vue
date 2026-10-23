@@ -25,6 +25,11 @@ const open = ref(false)
 const query = ref("")
 const inputRef = ref<unknown>(null)
 
+/** Projects are identified by their canonical directory in v2. */
+function projectPath(project: Project) {
+  return project.canonical
+}
+
 function projectName(path: string | undefined) {
   if (!path) return ""
   if (path === "/") return "root"
@@ -33,7 +38,7 @@ function projectName(path: string | undefined) {
 
 const sortedProjects = computed(() =>
   [...projects.value].sort((a, b) =>
-    (a.name || projectName(a.worktree)).localeCompare(b.name || projectName(b.worktree)),
+    (a.name || projectName(projectPath(a))).localeCompare(b.name || projectName(projectPath(b))),
   ),
 )
 
@@ -42,8 +47,8 @@ const filtered = computed(() => {
   if (!q) return sortedProjects.value
   return sortedProjects.value.filter(
     (project) =>
-      (project.name || projectName(project.worktree)).toLowerCase().includes(q) ||
-      project.worktree.toLowerCase().includes(q),
+      (project.name || projectName(projectPath(project))).toLowerCase().includes(q) ||
+      projectPath(project).toLowerCase().includes(q),
   )
 })
 
@@ -57,12 +62,12 @@ const selectedKey = computed<string>({
 })
 
 function displayValue(value: string) {
-  const project = projects.value.find((item) => item.worktree === value)
+  const project = projects.value.find((item) => projectPath(item) === value)
   return project?.name || projectName(value)
 }
 
 function isActive(project: Project) {
-  return project.worktree === directory.value
+  return projectPath(project) === directory.value
 }
 
 function inputNode(): HTMLInputElement | null {
@@ -134,14 +139,14 @@ watch(
           </ComboboxEmpty>
           <ComboboxItem
             v-for="project in filtered"
-            :key="project.worktree"
-            :value="project.worktree"
-            :text-value="project.name || projectName(project.worktree)"
+            :key="projectPath(project)"
+            :value="projectPath(project)"
+            :text-value="project.name || projectName(projectPath(project))"
             class="kilo-project-option"
             :class="{ 'is-active': isActive(project) }"
           >
-            <span class="kilo-project-name">{{ project.name || projectName(project.worktree) }}</span>
-            <span class="kilo-project-path">{{ project.worktree }}</span>
+            <span class="kilo-project-name">{{ project.name || projectName(projectPath(project)) }}</span>
+            <span class="kilo-project-path">{{ projectPath(project) }}</span>
             <ComboboxItemIndicator class="kilo-project-check"><Check :size="15" /></ComboboxItemIndicator>
           </ComboboxItem>
         </ComboboxViewport>

@@ -1,4 +1,4 @@
-import type { ToolPart } from "@/api/types"
+import type { AssistantTool } from "@/api/types"
 
 export interface ComposeVariant {
   label?: string
@@ -44,18 +44,29 @@ function normalize(value: unknown): ComposedMessage | null {
   }
 }
 
+/** Join the text blocks of a tool result. */
+function textOf(content: Array<{ type: string; text?: string }> | undefined): string {
+  return (content ?? [])
+    .filter((item) => item.type === "text")
+    .map((item) => item.text ?? "")
+    .filter(Boolean)
+    .join("\n")
+}
+
 /**
- * Extract the composed message(s) from a `message_compose_v1` tool part.
+ * Extract the composed message(s) from a `message_compose_v1` tool call.
  *
  * The tool input carries the subject/label and the output carries the finalized
- * body, so the two are merged variant by variant. Returns null when the part is
+ * body, so the two are merged variant by variant. Returns null when the tool is
  * not a composed message, letting the caller fall back to the generic tool view.
  */
-export function composedMessage(part: ToolPart): ComposedMessage | null {
-  const { state } = part
-  if (!part.tool.startsWith("message_compose")) return null
-  const input = normalize(state.input)
-  const output = state.status === "completed" ? normalize(parseJson(state.output)) : null
+export function composedMessage(part: AssistantTool): ComposedMessage | null {
+  if (!part.name.startsWith("message_compose")) return null
+  const state = part.state
+  // While streaming, the arguments are still a partial JSON string.
+  const rawInput = state.status === "streaming" ? parseJson(state.input) : asRecord(state.input)
+  const input = normalize(rawInput)
+  const output = state.status === "completed" ? normalize(parseJson(textOf(state.content))) : null
   const source = input ?? output
   if (!source) return null
   const variants = source.variants.map((variant, index) => ({

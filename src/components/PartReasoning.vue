@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue"
-import type { ReasoningPart } from "@/api/types"
+import type { AssistantReasoning } from "@/api/types"
 import Spinner from "./Spinner.vue"
 
-const props = defineProps<{ part: ReasoningPart }>()
-const streaming = computed(() => !props.part.time?.end)
+const props = defineProps<{ part: AssistantReasoning }>()
+const streaming = computed(() => !props.part.time?.completed)
 
 const body = ref<HTMLElement | null>(null)
 
