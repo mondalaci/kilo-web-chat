@@ -7,18 +7,28 @@ import type {
   AssistantTool,
   FormAnswer,
   FormInfo,
+  ModelRef,
   PermissionRequest,
   SessionActive,
   SessionInfo,
   SessionMessageAssistant,
   SessionMessageInfo,
+  SessionMessageUser,
   SessionStatus,
   SessionStructuredError,
   V2Event,
 } from "@/api/types"
+import { parseDataUrl } from "@/utils/file"
 
 /** How long streaming updates are coalesced before a full reconcile. */
 const RECONCILE_DEBOUNCE_MS = 200
+
+/**
+ * How much of the conversation a reconcile re-reads. A turn only ever changes
+ * its own tail, so the newest page is enough — fetching the whole conversation
+ * on every step would grow with the conversation instead of staying flat.
+ */
+const RECONCILE_PAGE_SIZE = 50
 
 const messages = ref<SessionMessageInfo[]>([])
 const status = ref<SessionStatus>({ type: "idle" })
@@ -53,6 +63,26 @@ const live = new Map<string, LiveContent>()
 
 let reconcileTimer: ReturnType<typeof setTimeout> | null = null
 let reconcileContext: { client: ServerClient; sessionID: string } | null = null
+
+/**
+ * Fold a freshly fetched page into the loaded conversation.
+ *
+ * The list is the whole conversation, oldest first, and the server's copy is
+ * authoritative for the messages it carries, so a fetched message replaces the
+ * loaded one with the same id. That is also how the optimistic copy of a message
+ * just sent is swapped for the real record: the prompt response hands back the
+ * id it was given. Older messages that are already loaded are left alone, since
+ * a page only ever carries the newest ones.
+ */
+function mergeMessages(current: SessionMessageInfo[], fetched: SessionMessageInfo[]): SessionMessageInfo[] {
+  if (!fetched.length) return current
+  const byID = new Map(current.map((message) => [message.id, message]))
+  for (const message of fetched) byID.set(message.id, message)
+  // A placeholder is only ever standing in for a message the server has already
+  // accepted, so once a page has arrived it has nothing left to do.
+  for (const message of current) if (message.id.startsWith("local-")) byID.delete(message.id)
+  return [...byID.values()].sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0))
+}
 
 function findMessage(messageID: string) {
   return messages.value.find((item) => item.id === messageID) as SessionMessageAssistant | undefined
@@ -343,7 +373,7 @@ export function useChat() {
     }
   }
 
-  /** Re-fetch the open session's messages, coalescing rapid callers. */
+  /** Re-fetch the open session's tail, coalescing rapid callers. */
   function scheduleReconcile(client: ServerClient, sessionID: string) {
     reconcileContext = { client, sessionID }
     if (reconcileTimer) return
@@ -353,25 +383,73 @@ export function useChat() {
     }, RECONCILE_DEBOUNCE_MS)
   }
 
+  /**
+   * Re-read the newest page of the conversation from the server.
+   *
+   * The fetched page updates the messages it carries and the rest of the
+   * conversation is kept, because the server only hands out the newest page
+   * (cursors run `next`-only, so paging backwards is not possible). Only ever
+   * *ends* a turn here: starting one is announced by `session.execution.started`,
+   * and this runs on a debounce. Ending it is what the server is authoritative
+   * about — a turn whose terminal event was lost in a gap in the stream would
+   * otherwise stay busy for ever.
+   */
   async function reconcileNow() {
     const context = reconcileContext
     if (!context || context.sessionID !== currentSessionID.value) return
     try {
-      const list = await context.client.allMessages(context.sessionID)
+      const [list, formList, session, active] = await Promise.all([
+        context.client.recentMessages(context.sessionID, { limit: RECONCILE_PAGE_SIZE }),
+        context.client.sessionForms(context.sessionID).catch(() => [] as FormInfo[]),
+        context.client.getSession(context.sessionID).catch(() => null),
+        context.client.activeSessions(),
+      ])
       if (currentSessionID.value !== context.sessionID) return
-      setMessages(list)
+      messages.value = mergeMessages(messages.value, list)
+      live.clear()
+      seed(messages.value)
+      forms.value = formList
+      if (!isRunning(active, session, context.sessionID, list[list.length - 1])) {
+        completeTurn(session?.outcome ?? "succeeded")
+      }
     } catch {
       /* keep the assembled view when the reconcile fails */
     }
   }
 
-  async function send(client: ServerClient, sessionID: string, body: { text: string; files?: PromptFileInput[] }) {
+  async function send(
+    client: ServerClient,
+    sessionID: string,
+    body: { text: string; files?: PromptFileInput[]; model?: ModelRef; agent?: string },
+  ) {
     sending.value = true
     error.value = null
     scrollToBottomRequest.value++
     reconcileContext = { client, sessionID }
     try {
-      await client.prompt(sessionID, body)
+      // v2 keeps the agent and the model on the session, so a switch the user
+      // made is committed here rather than trusted to have landed earlier.
+      if (body.model) await client.switchModel(sessionID, body.model)
+      if (body.agent) await client.switchAgent(sessionID, body.agent)
+      const messageID = await client.prompt(sessionID, { text: body.text, files: body.files })
+      // Show the message immediately, under the id the server gave it, so the
+      // conversation's own copy replaces it in place rather than appearing beside
+      // it. The inline bytes have to travel with it: an image whose `data` is
+      // missing has nothing to render, so it would show as a bare file name —
+      // exactly the attachment the composer had just been previewing.
+      const optimistic: SessionMessageUser = {
+        id: messageID || `local-${Date.now()}`,
+        type: "user",
+        text: body.text,
+        files: body.files?.map((file) => ({
+          mime: parseDataUrl(file.uri)?.mime ?? "",
+          name: file.name,
+          data: parseDataUrl(file.uri)?.data ?? "",
+          source: { type: "inline" },
+        })),
+        time: { created: Date.now() },
+      }
+      messages.value = [...messages.value, optimistic]
       status.value = { type: "busy" }
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err)
@@ -573,7 +651,11 @@ export function useChat() {
       /* --------------------------------- tools ------------------------------- */
       case "session.tool.input.started": {
         if (event.data.sessionID !== currentSessionID.value) return
-        toolBlock(event.data.assistantMessageID, event.data.id, event.data.name)
+        // Start the arguments from scratch: a block rebuilt from the server's
+        // copy is already complete, and appending deltas to that would duplicate
+        // them.
+        const entry = toolBlock(event.data.assistantMessageID, event.data.id, event.data.name)
+        if (entry) entry.block.state = { status: "streaming", input: "" }
         return
       }
       case "session.tool.input.delta": {
@@ -586,7 +668,12 @@ export function useChat() {
       }
       case "session.tool.input.ended": {
         if (event.data.sessionID !== currentSessionID.value) return
-        toolBlock(event.data.assistantMessageID, event.data.id)
+        // Keep the whole argument text, so the call still renders its arguments
+        // when `session.tool.called` is missed.
+        const entry = toolBlock(event.data.assistantMessageID, event.data.id)
+        if (entry && entry.block.state.status === "streaming") {
+          entry.block.state.input = event.data.text
+        }
         return
       }
       case "session.tool.called": {
@@ -613,6 +700,9 @@ export function useChat() {
           entry.block.executed = event.data.executed
           entry.block.state = {
             status: "completed",
+            // The event carries the result but not the arguments — those only
+            // travel with `session.tool.called` — so they come from the streamed
+            // text, which `input.ended` leaves complete.
             input: toolInput(entry.block.state),
             content: event.data.content,
             metadata: event.data.metadata ?? {},

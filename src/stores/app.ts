@@ -217,7 +217,14 @@ export function useApp() {
       if (!session) return
       sessionID = session.id
     }
-    await chat.send(client, sessionID, { text: content, files })
+    // The agent and model travel with the message: they are session state in v2,
+    // and the picker's choice may not have reached the session yet.
+    await chat.send(client, sessionID, {
+      text: content,
+      files,
+      model: server.selectedModel.value ?? undefined,
+      agent: server.selectedAgent.value ?? undefined,
+    })
   }
 
   async function abort() {
