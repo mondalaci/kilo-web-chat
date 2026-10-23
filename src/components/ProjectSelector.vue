@@ -111,13 +111,13 @@ watch(
     :ignore-filter="true"
     :open-on-click="true"
     :open-on-focus="true"
-    class="kilo-project-root"
+    class="opencode-project-root"
   >
-    <ComboboxAnchor class="kilo-project-anchor" title="Switch project (Alt+P)">
-      <Folder :size="13" class="kilo-project-icon" />
+    <ComboboxAnchor class="opencode-project-anchor" title="Switch project (Alt+P)">
+      <Folder :size="13" class="opencode-project-icon" />
       <ComboboxInput
         ref="inputRef"
-        class="kilo-project-input"
+        class="opencode-project-input"
         :display-value="displayValue"
         placeholder="Select project…"
         spellcheck="false"
@@ -126,15 +126,15 @@ watch(
         @click="selectDisplayValue"
       />
       <kbd v-if="shortcutsVisible" class="kbd floating">P</kbd>
-      <ComboboxTrigger class="kilo-project-chevron" aria-label="Switch project (Alt+P)">
+      <ComboboxTrigger class="opencode-project-chevron" aria-label="Switch project (Alt+P)">
         <ChevronDown :size="14" />
       </ComboboxTrigger>
     </ComboboxAnchor>
 
     <ComboboxPortal>
-      <ComboboxContent class="kilo-menu kilo-project-menu" position="popper" side="bottom" :side-offset="6" align="start">
-        <ComboboxViewport class="kilo-project-scroll">
-          <ComboboxEmpty class="kilo-project-empty">
+      <ComboboxContent class="opencode-menu opencode-project-menu" position="popper" side="bottom" :side-offset="6" align="start">
+        <ComboboxViewport class="opencode-project-scroll">
+          <ComboboxEmpty class="opencode-project-empty">
             {{ query ? `No projects match “${query}”.` : "No projects." }}
           </ComboboxEmpty>
           <ComboboxItem
@@ -142,12 +142,12 @@ watch(
             :key="projectPath(project)"
             :value="projectPath(project)"
             :text-value="project.name || projectName(projectPath(project))"
-            class="kilo-project-option"
+            class="opencode-project-option"
             :class="{ 'is-active': isActive(project) }"
           >
-            <span class="kilo-project-name">{{ project.name || projectName(projectPath(project)) }}</span>
-            <span class="kilo-project-path">{{ projectPath(project) }}</span>
-            <ComboboxItemIndicator class="kilo-project-check"><Check :size="15" /></ComboboxItemIndicator>
+            <span class="opencode-project-name">{{ project.name || projectName(projectPath(project)) }}</span>
+            <span class="opencode-project-path">{{ projectPath(project) }}</span>
+            <ComboboxItemIndicator class="opencode-project-check"><Check :size="15" /></ComboboxItemIndicator>
           </ComboboxItem>
         </ComboboxViewport>
       </ComboboxContent>
@@ -157,7 +157,7 @@ watch(
 
 <!-- Unscoped: Reka's teleported content does not receive scoped-style attributes. -->
 <style>
-.kilo-project-anchor {
+.opencode-project-anchor {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -170,17 +170,17 @@ watch(
   color: var(--text);
   transition: border-color 0.12s, background 0.12s;
 }
-.kilo-project-anchor:hover {
+.opencode-project-anchor:hover {
   background: var(--bg-hover);
 }
-.kilo-project-anchor:focus-within {
+.opencode-project-anchor:focus-within {
   border-color: var(--accent);
 }
-.kilo-project-icon {
+.opencode-project-icon {
   color: var(--text-muted);
   flex: none;
 }
-.kilo-project-input {
+.opencode-project-input {
   width: 110px;
   border: none;
   outline: none;
@@ -189,10 +189,10 @@ watch(
   font-size: 13px;
   text-overflow: ellipsis;
 }
-.kilo-project-input::placeholder {
+.opencode-project-input::placeholder {
   color: var(--text-muted);
 }
-.kilo-project-chevron {
+.opencode-project-chevron {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -202,22 +202,22 @@ watch(
   padding: 2px;
   flex: none;
 }
-.kilo-project-chevron:hover {
+.opencode-project-chevron:hover {
   color: var(--text);
 }
-.kilo-project-menu {
+.opencode-project-menu {
   width: 340px;
   display: flex;
   flex-direction: column;
   padding: 0;
   overflow: hidden;
 }
-.kilo-project-scroll {
+.opencode-project-scroll {
   max-height: min(60vh, 420px);
   overflow: auto;
   padding: 6px;
 }
-.kilo-project-option {
+.opencode-project-option {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 18px;
   align-items: center;
@@ -228,13 +228,13 @@ watch(
   outline: none;
   user-select: none;
 }
-.kilo-project-option[data-highlighted] {
+.opencode-project-option[data-highlighted] {
   background: var(--bg-hover);
 }
-.kilo-project-option.is-active {
+.opencode-project-option.is-active {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
-.kilo-project-name {
+.opencode-project-name {
   grid-column: 1;
   font-size: 13.5px;
   color: var(--text);
@@ -242,7 +242,7 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.kilo-project-path {
+.opencode-project-path {
   grid-column: 1;
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -251,14 +251,14 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.kilo-project-check {
+.opencode-project-check {
   grid-column: 2;
   grid-row: 1 / span 2;
   justify-self: center;
   color: var(--accent);
   display: inline-flex;
 }
-.kilo-project-empty {
+.opencode-project-empty {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;

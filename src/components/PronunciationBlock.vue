@@ -175,7 +175,7 @@ onBeforeUnmount(() => {
         <Volume2 :size="15" /> Pronunciation
         <span v-if="shortcutsVisible && entries.length" class="kbd">V</span>
         <span v-if="keySource === 'server'" class="pr-key-badge" title="Using the connected opencode server's OpenRouter key">
-          key: Kilo server
+          key: server
         </span>
       </span>
       <div class="pr-controls">

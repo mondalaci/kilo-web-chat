@@ -375,9 +375,9 @@ button.wide {
   margin: 12px 0 0;
 }
 .spin {
-  animation: kilo-spin 0.8s linear infinite;
+  animation: opencode-spin 0.8s linear infinite;
 }
-@keyframes kilo-spin {
+@keyframes opencode-spin {
   to {
     transform: rotate(360deg);
   }

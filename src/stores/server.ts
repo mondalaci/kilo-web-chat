@@ -121,6 +121,20 @@ export function useServer() {
   }
 
   /**
+   * Drop a variant the selected model does not offer.
+   *
+   * The model list is the only authority on which variants exist, so this runs
+   * once it is loaded rather than where a selection is made.
+   */
+  function withVariant(ref_: ModelRef | null | undefined): ModelRef | null {
+    if (!ref_?.id) return null
+    if (!ref_.variant) return ref_
+    const info = models.value.find((item) => item.providerID === ref_.providerID && item.id === ref_.id)
+    if (info?.variants.some((variant) => variant.id === ref_.variant)) return ref_
+    return { id: ref_.id, providerID: ref_.providerID }
+  }
+
+  /**
    * Fallback selection when neither the session nor the saved preferences name
    * an agent/model: config default agent → config model → server default model.
    */
@@ -185,6 +199,10 @@ export function useServer() {
       skills.value = skillList
       // Don't clobber the current agent/model when only switching project.
       if (changedOrigin || !selectedModel.value) applyDefaults()
+      // A remembered variant can outlive the model it was chosen for — saved
+      // preferences, or a model whose variants changed — and the server refuses a
+      // switch that names one the model does not offer.
+      selectedModel.value = withVariant(selectedModel.value)
     } catch (err) {
       error.value = err instanceof Error ? err.message : String(err)
     } finally {

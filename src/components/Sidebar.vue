@@ -215,12 +215,12 @@ function onSessionsKeydown(event: KeyboardEvent) {
             <span class="session-menu" @click.stop><MoreHorizontal :size="15" /></span>
           </DropdownMenuTrigger>
           <DropdownMenuPortal>
-            <DropdownMenuContent class="kilo-menu" :side-offset="4" align="start">
-              <DropdownMenuItem class="kilo-menu-item" @select="startRename(session.id, session.title ?? '')">
+            <DropdownMenuContent class="opencode-menu" :side-offset="4" align="start">
+              <DropdownMenuItem class="opencode-menu-item" @select="startRename(session.id, session.title ?? '')">
                 <Pencil :size="14" /> Rename
               </DropdownMenuItem>
-              <DropdownMenuSeparator class="kilo-menu-sep" />
-              <DropdownMenuItem class="kilo-menu-item" @select="archiveSession(session.id)">
+              <DropdownMenuSeparator class="opencode-menu-sep" />
+              <DropdownMenuItem class="opencode-menu-item" @select="archiveSession(session.id)">
                 <Archive :size="14" /> Archive
               </DropdownMenuItem>
             </DropdownMenuContent>
@@ -281,14 +281,14 @@ function onSessionsKeydown(event: KeyboardEvent) {
   font-size: 14px;
 }
 /* Project selector fills the space between the logo and the new-chat button. */
-.head :deep(.kilo-project-root) {
+.head :deep(.opencode-project-root) {
   flex: 1;
   min-width: 0;
 }
-.head :deep(.kilo-project-anchor) {
+.head :deep(.opencode-project-anchor) {
   width: 100%;
 }
-.head :deep(.kilo-project-input) {
+.head :deep(.opencode-project-input) {
   flex: 1;
   min-width: 0;
   width: auto;
@@ -430,13 +430,13 @@ function onSessionsKeydown(event: KeyboardEvent) {
 }
 .conn.working .conn-dot {
   background: var(--accent);
-  animation: kilo-pulse 1.2s ease-in-out infinite;
+  animation: opencode-pulse 1.2s ease-in-out infinite;
 }
 .conn.connecting .conn-dot,
 .conn.reconnecting .conn-dot {
   background: var(--accent);
 }
-@keyframes kilo-pulse {
+@keyframes opencode-pulse {
   50% {
     opacity: 0.35;
   }

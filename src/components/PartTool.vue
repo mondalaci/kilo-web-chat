@@ -2,7 +2,7 @@
 import { computed, ref } from "vue"
 import { Check, ChevronRight, CircleAlert, Terminal } from "lucide-vue-next"
 import type { AssistantTool } from "@/api/types"
-import { toolSummary } from "@/utils/format"
+import { prettyJson, toolSummary } from "@/utils/format"
 import { toolFileView, type FileView } from "@/utils/file"
 import JsonBlock from "./JsonBlock.vue"
 import PartFile from "./PartFile.vue"
@@ -35,7 +35,7 @@ function textOf(content: Array<{ type: string; text?: string }> | undefined): st
 }
 
 const outputText = computed(() => {
-  if (state.value.status === "completed") return textOf(state.value.content)
+  if (state.value.status === "completed") return prettyJson(textOf(state.value.content))
   if (state.value.status === "error") {
     return [state.value.error?.message, textOf(state.value.content)].filter(Boolean).join("\n")
   }
