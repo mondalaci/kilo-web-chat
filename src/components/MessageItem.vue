@@ -108,12 +108,20 @@ const shellExit = computed(() => {
 <template>
   <div v-if="renders" class="message" :class="isUser ? 'user' : isAssistant ? 'assistant' : 'note-row'">
     <div v-if="isAssistant || notice" class="avatar" aria-hidden="true">
+      <!-- A robot, drawn here rather than imported: a rounded head with a stub
+           antenna and side ears, and two eyes knocked out of the fill so they
+           take the tile's own colour. -->
       <svg class="robot" viewBox="0 0 24 24">
-        <rect class="robot-body" x="4.5" y="7.5" width="15" height="11.5" rx="3.5" />
-        <path class="robot-antenna" d="M12 7.5V4.5" />
-        <circle class="robot-body" cx="12" cy="3.3" r="1.3" />
-        <rect class="robot-eyes" x="8.2" y="11" width="2.4" height="2.4" rx="0.7" />
-        <rect class="robot-eyes" x="13.4" y="11" width="2.4" height="2.4" rx="0.7" />
+        <g class="robot-body">
+          <rect x="5" y="6" width="14" height="14" rx="3.5" />
+          <rect x="11.1" y="4" width="1.8" height="2.8" rx="0.9" />
+          <rect x="2.2" y="11" width="3" height="6" rx="1.3" />
+          <rect x="18.8" y="11" width="3" height="6" rx="1.3" />
+        </g>
+        <g class="robot-eyes">
+          <circle cx="9.4" cy="13" r="1.9" />
+          <circle cx="14.6" cy="13" r="1.9" />
+        </g>
       </svg>
     </div>
 
@@ -158,7 +166,7 @@ const shellExit = computed(() => {
       <p class="notice-text">{{ notice.text }}</p>
     </div>
 
-    <div v-if="isUser" class="avatar user-avatar" aria-hidden="true"><User :size="15" /></div>
+    <div v-if="isUser" class="avatar" aria-hidden="true"><User :size="15" /></div>
 
     <div v-if="meta && !streaming && shortcutsVisible" class="meta" :title="meta.model">
       <div class="meta-inner">
@@ -180,6 +188,9 @@ const shellExit = computed(() => {
   max-width: var(--content-width);
   margin: 0 auto;
   width: 100%;
+  /* The gutter an avatar needs: its own width plus the flex gap. Both rows
+     reserve one, so the avatars hang outside the same content width. */
+  --avatar-gutter: calc(28px + 12px);
 }
 .message.user {
   justify-content: flex-end;
@@ -188,18 +199,18 @@ const shellExit = computed(() => {
   justify-content: flex-start;
 }
 .avatar {
+  /* Both sides of the conversation wear the same tile; only the glyph differs. */
+  --avatar-tile: var(--bg-active);
   flex: none;
   width: 28px;
   height: 28px;
   border-radius: 8px;
   display: grid;
   place-items: center;
-  background: var(--avatar-tile, var(--accent));
-  color: var(--accent-text);
+  background: var(--avatar-tile);
+  color: var(--text-muted);
   margin-top: 2px;
 }
-/* Bot glyph shared with the studio app: solid body with the eyes knocked back
-   to the tile colour, plus a stroke-only antenna stem so it reads as one piece. */
 .robot {
   display: block;
   width: 18px;
@@ -208,20 +219,9 @@ const shellExit = computed(() => {
 .robot-body {
   fill: currentColor;
 }
-.robot-antenna {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-  stroke-linecap: round;
-}
+/* The eyes are the tile showing through, hence the tile's own colour. */
 .robot-eyes {
-  fill: var(--avatar-tile, var(--accent));
-}
-.user-avatar {
-  --avatar-tile: var(--bg-active);
-  background: var(--avatar-tile);
-  color: var(--text-muted);
-  font-size: 10px;
+  fill: var(--avatar-tile);
 }
 .bubble {
   min-width: 0;
@@ -229,6 +229,10 @@ const shellExit = computed(() => {
 }
 .assistant-bubble {
   flex: 1;
+  /* Stop one gutter short of the column edge, where the user's bubble stops, so
+     the assistant's content and the user's share one width and both avatars
+     protrude past it. */
+  margin-right: var(--avatar-gutter);
 }
 .user-bubble {
   background: var(--bubble-user);
