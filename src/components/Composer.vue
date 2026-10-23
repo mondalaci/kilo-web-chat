@@ -193,8 +193,13 @@ function onKeydown(event: KeyboardEvent) {
             <Paperclip :size="16" />
           </button>
           <AgentSelector />
-          <ModelSelector />
-          <VariantSelector v-if="selectedModelVariants.length" />
+          <div class="control-group" title="Model and reasoning effort">
+            <ModelSelector :grouped="selectedModelVariants.length ? 'start' : 'both'" />
+            <template v-if="selectedModelVariants.length">
+              <span class="control-divider" aria-hidden="true" />
+              <VariantSelector grouped />
+            </template>
+          </div>
           <span v-if="attachmentsUnsupported()" class="warn" title="The selected model may not accept images">
             <TriangleAlert :size="12" /> model may not accept images
           </span>
@@ -351,8 +356,35 @@ function onKeydown(event: KeyboardEvent) {
 .bar-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* Tight: the bar carries several controls plus the attach button on one line. */
+  gap: 6px;
   flex-wrap: wrap;
+}
+/* One pill for the two things a run needs: which model, and how hard it thinks.
+   The segments inside it are the selectors themselves, so each keeps its own
+   popup and its own shortcut. Not clipped: the Alt-key badges float above the
+   segments, and each segment rounds its own end instead. */
+.control-group {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  transition: border-color 0.12s;
+}
+.control-group:focus-within {
+  border-color: var(--accent);
+}
+.control-group > * {
+  display: inline-flex;
+  min-width: 0;
+}
+.control-divider {
+  width: 1px;
+  height: 16px;
+  flex: none;
+  background: var(--border);
 }
 .warn {
   display: inline-flex;
