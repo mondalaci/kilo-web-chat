@@ -16,8 +16,9 @@ targets (see the dependency version in `package.json`).
 - **Chat UI** — streaming assistant messages, Markdown with syntax highlighting
   (including Mermaid diagrams), reasoning blocks, collapsible tool calls with
   JSON-highlighted inputs/outputs, and inline file/image attachments.
-- **Agent and model selection** — applied to the open session through the
-  server's switch endpoints, with per-server remembered defaults.
+- **Model selection** — applied to the open session through the server's switch
+  endpoint, with a per-server remembered default. Every session runs on the
+  `build` agent; there is no agent picker.
 - **Interactive prompts** — permission requests (allow once / always / deny) and
   agent forms (options, multi-select, yes/no, numbers, free text), with a
   free-form question answerable by typing it straight into the composer.
@@ -122,15 +123,9 @@ cp public/opencode-web-chat.example.json public/opencode-web-chat.json
 It is a plain static file, so you can edit it on a running deployment and the
 change applies on the next reload — no rebuild or restart.
 
-```json
-{
-  "defaultAgent": "plan"
-}
-```
-
-`defaultAgent` selects an agent on load, overriding the last-used saved agent,
-as long as it names an agent the server exposes; an absent, empty (`null`), or
-invalid value leaves the last-used agent in effect.
+It carries no settings at the moment: the only one it had preselected an agent,
+and every session now runs on `build`. The file and its loader are kept as the
+hook for a deployment-wide setting (or delete both with the example file).
 
 ## URL parameters
 
@@ -217,7 +212,7 @@ src/
 | Sessions | `GET/POST /api/session`, `GET/PATCH/DELETE /api/session/{id}` |
 | Messages | `GET /api/session/{id}/message` |
 | Send / interrupt | `POST /api/session/{id}/prompt`, `POST /api/session/{id}/interrupt` |
-| Agent / model switch | `POST /api/session/{id}/agent`, `POST /api/session/{id}/model` |
+| Agent / model switch | `POST /api/session/{id}/agent` (the `build` agent), `POST /api/session/{id}/model` |
 | Active sessions | `GET /api/session/active` |
 | Permissions | `GET /api/permission/request`, `POST /api/session/{id}/permission/{rid}/reply` |
 | Forms (agent questions) | `GET /api/form`, `POST /api/session/{id}/form/{fid}/reply` |

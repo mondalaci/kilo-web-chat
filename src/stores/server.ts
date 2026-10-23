@@ -7,7 +7,7 @@ import { baseCost, isFreeModel, variantIDs } from "@/api/types"
 const PREFS_KEY = "opencode-web-chat.prefs"
 
 interface Preferences {
-  [origin: string]: { agent?: string; model?: ModelRef; directory?: string; imageModel?: string }
+  [origin: string]: { model?: ModelRef; directory?: string; imageModel?: string }
 }
 
 function loadPrefs(): Preferences {
@@ -56,7 +56,15 @@ const serverDefaultModel = ref<ModelRef | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 
-const selectedAgent = ref<string>("build")
+/**
+ * The agent every session runs on.
+ *
+ * The app runs everything on `build`: there is no picker, no saved preference and
+ * no link param, so a conversation is never started on an agent the server has
+ * since removed — and never on a secondary agent that was never meant to be
+ * addressable from a chat box.
+ */
+const agent = "build"
 const selectedModel = ref<ModelRef | null>(null)
 /** Image model the `generate_image` tool should use; null means its own default. */
 const selectedImageModel = ref<string | null>(null)
@@ -84,12 +92,10 @@ const providerGroups = computed<ModelGroup[]>(() => {
     })
 })
 
-/** Primary, non-hidden agents — the ones a chat can be started with. */
-const modes = computed<Agent[]>(() => agents.value.filter((agent) => agent.mode === "primary" && !agent.hidden))
+/** Primary, non-hidden agents; only the running agent's own model is read from it. */
+const modes = computed<Agent[]>(() => agents.value.filter((item) => item.mode === "primary" && !item.hidden))
 
-const selectedAgentInfo = computed<Agent | undefined>(() =>
-  modes.value.find((agent) => agent.id === selectedAgent.value),
-)
+const selectedAgentInfo = computed<Agent | undefined>(() => modes.value.find((item) => item.id === agent))
 
 const selectedModelInfo = computed<Model | undefined>(() => {
   const ref_ = selectedModel.value
@@ -149,17 +155,12 @@ export function useServer() {
   }
 
   /**
-   * Fallback selection when neither the session nor the saved preferences name
-   * an agent/model: config default agent → config model → server default model.
+   * Fallback selection when neither the session nor the saved preferences name a
+   * model: saved preference → config model → server default model → the running
+   * agent's own model.
    */
   function applyDefaults() {
     const saved = prefs.value[origin.value ?? ""] ?? {}
-    selectedAgent.value =
-      saved.agent ??
-      configValues.value?.defaultAgent ??
-      modes.value[0]?.id ??
-      agents.value[0]?.id ??
-      "build"
 
     const candidates: Array<ModelRef | null> = [
       resolved(saved.model),
@@ -177,10 +178,9 @@ export function useServer() {
     loading.value = true
     error.value = null
 
-    // Apply saved agent/model synchronously so the UI never flashes the default
+    // Apply the saved model synchronously so the UI never flashes the default
     // while the request is in flight.
     const saved = prefs.value[instanceOrigin] ?? {}
-    if (saved.agent) selectedAgent.value = saved.agent
     if (saved.model) selectedModel.value = resolved(saved.model)
     selectedImageModel.value = saved.imageModel ?? null
 
@@ -211,10 +211,8 @@ export function useServer() {
         .map((provider) => provider.id)
       connectedProviderIDs.value = [...new Set([...credentialIntegrations, ...withKeys])]
       skills.value = skillList
-      // Don't clobber the current agent/model when only switching project.
+      // Don't clobber the current model when only switching project.
       if (changedOrigin || !selectedModel.value) applyDefaults()
-      // A remembered agent can name one the server no longer has.
-      ensureAgent()
       // A remembered variant can outlive the model it was chosen for — saved
       // preferences, or a model whose variants changed — and the server refuses a
       // switch that names one the model does not offer.
@@ -236,7 +234,6 @@ export function useServer() {
    */
   function applySavedPrefs(instanceOrigin: string) {
     const saved = prefs.value[instanceOrigin] ?? {}
-    if (saved.agent) selectedAgent.value = saved.agent
     if (saved.model) selectedModel.value = resolved(saved.model)
     selectedImageModel.value = saved.imageModel ?? null
   }
@@ -265,33 +262,10 @@ export function useServer() {
     selectedImageModel.value = null
   }
 
-  /**
-   * Keep the selection on an agent the server still has.
-   *
-   * A remembered agent can outlive the agent itself: a saved preference, or a
-   * session created while a now-deleted agent was selected. Naming one to the
-   * server fails the next prompt with `Agent not found`, so fall back to the first
-   * primary agent the server offers.
-   */
-  function ensureAgent() {
-    if (agents.value.some((item) => item.id === selectedAgent.value)) return
-    selectedAgent.value = modes.value[0]?.id ?? agents.value[0]?.id ?? "build"
-  }
-
-  /** Adopt a session's own agent/model as the current selection. */
-  function applySession(session: { agent?: string; model?: ModelRef }) {
-    if (session.agent) selectedAgent.value = session.agent
-    ensureAgent()
+  /** Adopt a session's own model as the current selection. */
+  function applySession(session: { model?: ModelRef }) {
     const model = resolved(session.model)
     if (model) selectedModel.value = model
-  }
-
-  /** Persist the agent selection without touching the server. */
-  function setAgentLocal(name: string) {
-    selectedAgent.value = name
-    const key = origin.value ?? ""
-    prefs.value = { ...prefs.value, [key]: { ...prefs.value[key], agent: name } }
-    persistPrefs()
   }
 
   /** Persist the model selection without touching the server. */
@@ -325,7 +299,7 @@ export function useServer() {
     error,
     modes,
     providerGroups,
-    selectedAgent,
+    agent,
     selectedAgentInfo,
     selectedModel,
     selectedModelInfo,
@@ -340,7 +314,6 @@ export function useServer() {
     applySession,
     applyDefaults,
     reset,
-    setAgentLocal,
     setModelLocal,
     setImageModel,
   }

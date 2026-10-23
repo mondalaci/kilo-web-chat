@@ -6,7 +6,6 @@ import { useChat } from "./chat"
 import { useConnection } from "./connection"
 import { draft, requestComposerFocus } from "./draft"
 import { useLive } from "./live"
-import { loadRuntimeConfig } from "./runtimeConfig"
 import { toModelRef, useServer } from "./server"
 import { useSessions } from "./sessions"
 import {
@@ -59,7 +58,6 @@ export function useApp() {
       await sessions.load(client, server.directory.value)
       live.start(client, server.directory.value)
       await openSessionFromUrl()
-      await applyRuntimeDefaults()
       await applyLinkParams()
       return true
     } catch (error) {
@@ -115,17 +113,6 @@ export function useApp() {
   }
 
   /**
-   * Apply the runtime config's `defaultAgent` (from `opencode-web-chat.json`)
-   * once the agent list is known. It overrides the last-used saved agent.
-   */
-  async function applyRuntimeDefaults() {
-    const { defaultAgent } = await loadRuntimeConfig()
-    if (defaultAgent && server.modes.value.some((agent) => agent.id === defaultAgent)) {
-      await setAgent(defaultAgent)
-    }
-  }
-
-  /**
    * Apply one-time link params (`?query=`, `?submit=`) after a connection is
    * established. The query is prefilled into the composer; with `submit` it is
    * sent right away (creating a new chat if none is open) and the params are
@@ -166,26 +153,12 @@ export function useApp() {
     if (!client) return null
     const session = await sessions.create(
       client,
-      { agent: server.selectedAgent.value, model: server.selectedModel.value ?? undefined },
+      { agent: server.agent, model: server.selectedModel.value ?? undefined },
       server.directory.value,
     )
     await selectSession(session.id)
     requestComposerFocus()
     return session
-  }
-
-  /**
-   * Select an agent. When a chat is open the choice is applied to that session
-   * (v2 keeps agent/model on the session, not on each message).
-   */
-  async function setAgent(name: string) {
-    server.setAgentLocal(name)
-    const client = connection.client.value
-    const sessionID = sessions.currentID.value
-    if (!client || !sessionID) return
-    await client.switchAgent(sessionID, name).catch(() => undefined)
-    const info = sessions.sessions.value.find((item) => item.id === sessionID)
-    if (info) sessions.upsert({ ...info, agent: name })
   }
 
   /** Select a model (optionally with a variant), applying it to the open chat. */
@@ -226,7 +199,7 @@ export function useApp() {
       text: content,
       files,
       model: server.selectedModel.value ?? undefined,
-      agent: server.selectedAgent.value ?? undefined,
+      agent: server.agent,
       imageModel: server.selectedImageModel.value,
     })
   }
@@ -351,7 +324,6 @@ export function useApp() {
     restoreSession,
     deleteSession,
     renameSession,
-    setAgent,
     setModel,
     setVariant,
     replyPermission,

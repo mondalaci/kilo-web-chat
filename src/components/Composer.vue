@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue"
 import { ArrowUp, FileText, Paperclip, Square, TriangleAlert, X } from "lucide-vue-next"
-import AgentSelector from "./AgentSelector.vue"
 import ImageModelSelector from "./ImageModelSelector.vue"
 import ModelSelector from "./ModelSelector.vue"
 import VariantSelector from "./VariantSelector.vue"
@@ -193,7 +192,6 @@ function onKeydown(event: KeyboardEvent) {
           <button type="button" class="attach" title="Attach files" @click="pickFiles">
             <Paperclip :size="16" />
           </button>
-          <AgentSelector />
           <div class="control-group" title="Model and reasoning effort">
             <ModelSelector :grouped="selectedModelVariants.length ? 'start' : 'both'" />
             <template v-if="selectedModelVariants.length">
