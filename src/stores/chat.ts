@@ -218,15 +218,15 @@ export function useChat() {
         client.allMessages(sessionID),
         client.pendingPermissions(directory).catch(() => [] as PermissionRequest[]),
         client.pendingForms(directory).catch(() => [] as FormInfo[]),
-        client.activeSessions().catch(() => ({} as Record<string, SessionStatus>)),
+        client.activeSessions(),
       ])
       // Ignore a response for a session the user already navigated away from.
       if (currentSessionID.value !== sessionID) return
       setMessages(list)
       permissions.value = perms
       forms.value = pendingForms
-      const running = active[sessionID]
-      status.value = running ?? { type: "idle" }
+      const running = active?.[sessionID]
+      status.value = running ? { type: "busy" } : { type: "idle" }
     } catch (err) {
       if (currentSessionID.value === sessionID) error.value = err instanceof Error ? err.message : String(err)
     } finally {

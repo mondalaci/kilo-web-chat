@@ -85,11 +85,11 @@ export function useSessions() {
   }
 
   async function rename(client: ServerClient, sessionID: string, title: string) {
-    await client.updateSession(sessionID, { title })
-    // The update endpoint answers 204, so reflect the change locally.
-    const existing = sessions.value.find((item) => item.id === sessionID)
-    if (existing) upsert({ ...existing, title })
-    return title
+    // The patch answers without a body, so the wrapper reads the row back and
+    // the sidebar shows the server's own title.
+    const session = await client.updateSession(sessionID, { title })
+    upsert(session)
+    return session.title ?? title
   }
 
   /** Refresh one session from the server (used after session events). */

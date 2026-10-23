@@ -9,10 +9,10 @@ import type {
   ModelRef,
   PermissionRequest,
   Project,
+  SessionActive,
   SessionInfo,
   SessionMessageID,
   SessionMessageInfo,
-  SessionStatus,
   SkillInfo,
   Command,
   Provider,
@@ -27,11 +27,67 @@ export interface Credentials {
 /** Username the opencode server expects alongside its service password. */
 export const DEFAULT_USERNAME = "opencode"
 
+/**
+ * Deadline for a single request, in ms.
+ *
+ * A request that never settles keeps its socket open for ever. A handful of
+ * those exhaust the browser's per-origin connection pool, after which every
+ * later request (health probes included) queues indefinitely and the app looks
+ * dead. So each call carries a deadline it aborts on; streams opt out of it.
+ */
+const DEFAULT_TIMEOUT_MS = 30_000
+
+/** Per-call transport knobs, honoured by every method below. */
+export interface CallOptions {
+  /** Deadline in ms; `0` disables it (a stream runs until it is aborted). */
+  timeoutMs?: number
+  /** Abort the call from the outside, e.g. when the session changes. */
+  signal?: AbortSignal
+}
+
+/**
+ * HTTP status of every error tag the server can answer with, so a failure keeps
+ * its meaning after it has been folded into `ServerError`.
+ */
+const ERROR_STATUS: Record<string, number> = {
+  InvalidRequestError: 400,
+  InvalidCursorError: 400,
+  FormInvalidAnswerError: 400,
+  UnauthorizedError: 401,
+  ForbiddenError: 403,
+  SessionNotFoundError: 404,
+  MessageNotFoundError: 404,
+  LocationNotFoundError: 404,
+  ProjectNotFoundError: 404,
+  ProviderNotFoundError: 404,
+  AgentNotFoundError: 404,
+  FormNotFoundError: 404,
+  CommandNotFoundError: 404,
+  SkillNotFoundError: 404,
+  FileNotFoundError: 404,
+  ShellNotFoundError: 404,
+  McpServerNotFoundError: 404,
+  IntegrationNotFoundError: 404,
+  PermissionNotFoundError: 404,
+  PermissionSavedNotFoundError: 404,
+  SessionBusyError: 409,
+  ConflictError: 409,
+  FormAlreadySettledError: 409,
+  InstructionEntryValueTooLargeError: 413,
+  UnknownError: 500,
+  CommandExecutionError: 500,
+  RpcInternalError: 500,
+  ServiceUnavailableError: 503,
+  VcsInitNotSupportedError: 501,
+}
+
 /** A normalized transport/HTTP failure the UI can present. */
 export class ServerError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** The server's own error tag, when it answered with one. */
+    public tag?: string,
   ) {
     super(message)
     this.name = "ServerError"
@@ -43,18 +99,21 @@ export class ServerError extends Error {
 }
 
 /**
- * Declared API failures (the generated client throws tagged errors such as
- * `UnauthorizedError`) and transport failures are folded into one error type so
- * callers do not need to know which layer failed.
+ * Declared API failures (the generated client throws tagged values such as
+ * `{_tag: "SessionNotFoundError"}`) and transport failures are folded into one
+ * error type so callers do not need to know which layer failed.
  */
 export function toServerError(error: unknown): ServerError {
   if (error instanceof ServerError) return error
-  const tag = (error as { _tag?: string } | null)?._tag
-  if (isUnauthorizedError(error) || tag === "UnauthorizedError") {
-    return new ServerError(401, "Authentication required")
+  const tagged = error as { _tag?: string; message?: string } | null
+  const tag = tagged?._tag
+  if (typeof tag === "string") {
+    const status = ERROR_STATUS[tag]
+    if (status) return new ServerError(status, tagged?.message || tag, tag)
   }
-  if (tag === "SessionNotFoundError") return new ServerError(404, "Session not found")
-  if (tag === "LocationNotFoundError") return new ServerError(404, "Location not found")
+  if (isUnauthorizedError(error)) return new ServerError(401, "Authentication required", "UnauthorizedError")
+  // The generated client folds the response detail (or the cause's message) into
+  // its own message, so a transport failure or an aborted call still reads well.
   if (error instanceof ClientError) return new ServerError(0, error.message)
   if (error instanceof Error) return new ServerError(0, error.message)
   return new ServerError(0, String(error))
@@ -68,8 +127,13 @@ export interface SessionPage {
 
 export interface MessagePage {
   data: SessionMessageInfo[]
-  /** Opaque cursor for the page before this one, or null at the start. */
-  previous: string | null
+  /**
+   * Opaque cursor for the next page in the requested order, or null at the end.
+   *
+   * Only the `next` cursor can be followed: the server encodes an order and a
+   * direction into it, and a `previous` cursor comes back as an empty page.
+   */
+  next: string | null
 }
 
 export interface PromptFileInput {
@@ -89,8 +153,8 @@ export interface ConfigValues {
  * Thin wrapper over the generated `@opencode/client` client.
  *
  * Its job is to (a) attach the server's HTTP Basic credentials, (b) scope
- * calls to the selected project directory and (c) normalize errors, so the
- * stores never deal with transport details.
+ * calls to the selected project directory, (c) give every request a deadline
+ * and (d) normalize errors, so the stores never deal with transport details.
  */
 export class ServerClient {
   readonly origin: string
@@ -113,61 +177,93 @@ export class ServerClient {
     return directory ? { location: { directory } } : undefined
   }
 
-  private static wrap<T>(promise: Promise<T>): Promise<T> {
-    return promise.catch((error: unknown) => {
+  /**
+   * Run one generated-client call under a deadline, forwarding the caller's own
+   * signal into it, and normalize whatever fails.
+   */
+  private async request<T>(
+    opts: CallOptions | undefined,
+    run: (requestOptions: { signal: AbortSignal }) => Promise<T>,
+  ): Promise<T> {
+    const timeoutMs = opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    const controller = new AbortController()
+    const timer =
+      timeoutMs > 0
+        ? setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs} ms`)), timeoutMs)
+        : undefined
+    const caller = opts?.signal
+    const forward = () => controller.abort(caller?.reason)
+    if (caller) {
+      if (caller.aborted) forward()
+      else caller.addEventListener("abort", forward, { once: true })
+    }
+    try {
+      return await run({ signal: controller.signal })
+    } catch (error) {
       throw toServerError(error)
-    })
+    } finally {
+      if (timer) clearTimeout(timer)
+      caller?.removeEventListener("abort", forward)
+    }
   }
 
   /* --------------------------------- server -------------------------------- */
 
-  async info() {
-    return ServerClient.wrap(this.sdk.server.info())
+  async info(opts?: CallOptions) {
+    return this.request(opts, (requestOptions) => this.sdk.server.info(requestOptions))
   }
 
-  async locationInfo(directory?: string | null) {
-    return ServerClient.wrap<LocationPublicInfo>(
-      this.sdk.location.get(ServerClient.location(directory)),
+  async locationInfo(directory?: string | null, opts?: CallOptions) {
+    return this.request(
+      opts,
+      (requestOptions) =>
+        this.sdk.location.get(ServerClient.location(directory), requestOptions) as Promise<LocationPublicInfo>,
     )
   }
 
   /* ------------------------------ configuration ---------------------------- */
 
-  async agents(directory?: string | null): Promise<Agent[]> {
-    const result = await ServerClient.wrap(this.sdk.agent.list(ServerClient.location(directory)))
+  async agents(directory?: string | null, opts?: CallOptions): Promise<Agent[]> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.agent.list(ServerClient.location(directory), requestOptions),
+    )
     return result.data
   }
 
-  async models(directory?: string | null): Promise<Model[]> {
-    const result = await ServerClient.wrap(
-      this.sdk.model.list(ServerClient.location(directory)),
+  async models(directory?: string | null, opts?: CallOptions): Promise<Model[]> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.model.list(ServerClient.location(directory), requestOptions),
     )
     return result.data
   }
 
   /** The model the server would pick when a session does not name one. */
-  async defaultModel(directory?: string | null): Promise<Model | null> {
-    const result = await ServerClient.wrap(
-      this.sdk.model.default(ServerClient.location(directory)),
+  async defaultModel(directory?: string | null, opts?: CallOptions): Promise<Model | null> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.model.default(ServerClient.location(directory), requestOptions),
     )
     return result.data
   }
 
-  async providers(directory?: string | null): Promise<Provider[]> {
-    const result = await ServerClient.wrap(this.sdk.provider.list(ServerClient.location(directory)))
+  async providers(directory?: string | null, opts?: CallOptions): Promise<Provider[]> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.provider.list(ServerClient.location(directory), requestOptions),
+    )
     return result.data
   }
 
-  async configs(directory?: string | null): Promise<ConfigEntry[]> {
-    return ServerClient.wrap(this.sdk.config.get(ServerClient.location(directory)))
+  async configs(directory?: string | null, opts?: CallOptions): Promise<ConfigEntry[]> {
+    return this.request(opts, (requestOptions) =>
+      this.sdk.config.get(ServerClient.location(directory), requestOptions),
+    )
   }
 
   /**
    * Merge the config documents into the handful of values the app needs.
    * Later entries win, matching the server's own merge order.
    */
-  async configValues(directory?: string | null): Promise<ConfigValues> {
-    const entries = await this.configs(directory)
+  async configValues(directory?: string | null, opts?: CallOptions): Promise<ConfigValues> {
+    const entries = await this.configs(directory, opts)
     const values: ConfigValues = {}
     for (const entry of entries) {
       if (entry.type !== "document") continue
@@ -209,17 +305,21 @@ export class ServerClient {
     return null
   }
 
-  async projects(): Promise<Project[]> {
-    return ServerClient.wrap(this.sdk.project.list())
+  async projects(opts?: CallOptions): Promise<Project[]> {
+    return this.request(opts, (requestOptions) => this.sdk.project.list(undefined, requestOptions))
   }
 
-  async commands(directory?: string | null): Promise<Command[]> {
-    const result = await ServerClient.wrap(this.sdk.command.list(ServerClient.location(directory)))
+  async commands(directory?: string | null, opts?: CallOptions): Promise<Command[]> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.command.list(ServerClient.location(directory), requestOptions),
+    )
     return result.data
   }
 
-  async skills(directory?: string | null): Promise<SkillInfo[]> {
-    const result = await ServerClient.wrap(this.sdk.skill.list(ServerClient.location(directory)))
+  async skills(directory?: string | null, opts?: CallOptions): Promise<SkillInfo[]> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.skill.list(ServerClient.location(directory), requestOptions),
+    )
     return result.data
   }
 
@@ -227,16 +327,27 @@ export class ServerClient {
 
   async listSessions(
     directory?: string | null,
-    opts: { limit?: number; search?: string; cursor?: string } = {},
+    opts: {
+      limit?: number
+      search?: string
+      cursor?: string
+      /** Archived conversations are opt-in: the visible lists never want them. */
+      archived?: boolean
+    } = {},
+    call: CallOptions = {},
   ): Promise<SessionPage> {
-    const page = await ServerClient.wrap(
-      this.sdk.session.list({
-        directory: directory ?? undefined,
-        limit: opts.limit ?? 50,
-        search: opts.search,
-        cursor: opts.cursor,
-        parentID: "null",
-      }),
+    const page = await this.request(call, (requestOptions) =>
+      this.sdk.session.list(
+        {
+          directory: directory ?? undefined,
+          limit: opts.limit ?? 50,
+          search: opts.search,
+          cursor: opts.cursor,
+          archived: opts.archived ?? false,
+          parentID: "null",
+        },
+        requestOptions,
+      ),
     )
     return { data: page.data, next: page.cursor.next ?? null }
   }
@@ -244,99 +355,180 @@ export class ServerClient {
   async createSession(
     body: { title?: string; agent?: string; model?: ModelRef },
     directory?: string | null,
+    opts?: CallOptions,
   ): Promise<SessionInfo> {
-    return ServerClient.wrap(
-      this.sdk.session.create({
-        title: body.title,
-        agent: body.agent,
-        model: body.model ? { id: body.model.id, providerID: body.model.providerID, variant: body.model.variant } : undefined,
-        location: directory ? { directory } : undefined,
-      }),
+    return this.request(opts, (requestOptions) =>
+      this.sdk.session.create(
+        {
+          title: body.title,
+          agent: body.agent,
+          model: body.model ? { id: body.model.id, providerID: body.model.providerID, variant: body.model.variant } : undefined,
+          location: directory ? { directory } : undefined,
+        },
+        requestOptions,
+      ),
     )
   }
 
-  async getSession(sessionID: string): Promise<SessionInfo> {
-    return ServerClient.wrap(this.sdk.session.get({ sessionID }))
+  async getSession(sessionID: string, opts?: CallOptions): Promise<SessionInfo> {
+    return this.request(opts, (requestOptions) => this.sdk.session.get({ sessionID }, requestOptions))
   }
 
-  async updateSession(sessionID: string, body: { title?: string }): Promise<void> {
-    return ServerClient.wrap(this.sdk.session.update({ sessionID, title: body.title }))
+  /**
+   * Patch a session. The endpoint answers without a body, so the row is read
+   * back: callers need the server's own values ("archived", "title") to keep the
+   * sidebar honest rather than guessing at them.
+   */
+  async updateSession(
+    sessionID: string,
+    body: { title?: string; archived?: boolean },
+    opts?: CallOptions,
+  ): Promise<SessionInfo> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.session.update({ sessionID, title: body.title, archived: body.archived }, requestOptions),
+    )
+    return this.getSession(sessionID, opts)
   }
 
-  async removeSession(sessionID: string): Promise<void> {
-    return ServerClient.wrap(this.sdk.session.remove({ sessionID }))
+  async removeSession(sessionID: string, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) => this.sdk.session.remove({ sessionID }, requestOptions))
   }
 
-  /** Sessions currently executing on the server, keyed by session id. */
-  async activeSessions(): Promise<Record<string, SessionStatus>> {
-    const active = await ServerClient.wrap(this.sdk.session.active()).catch(() => ({}))
-    const statuses: Record<string, SessionStatus> = {}
-    for (const id of Object.keys(active)) statuses[id] = { type: "busy" }
-    return statuses
+  /**
+   * Sessions the server is executing right now, keyed by session id.
+   *
+   * `null` means the question could not be answered, which is different from an
+   * empty record: callers fall back to the session's own timestamps rather than
+   * reporting "nothing is running".
+   */
+  async activeSessions(opts?: CallOptions): Promise<Record<string, SessionActive> | null> {
+    try {
+      return await this.request(opts, (requestOptions) => this.sdk.session.active(requestOptions))
+    } catch {
+      return null
+    }
   }
 
   /* -------------------------------- messages -------------------------------- */
 
-  /** Newest page of messages first, matching the server's default order. */
-  async listMessages(sessionID: string, opts: { limit?: number; cursor?: string } = {}): Promise<MessagePage> {
-    const page = await ServerClient.wrap(
-      this.sdk.message.list({ sessionID, limit: opts.limit ?? 200, cursor: opts.cursor }),
+  async listMessages(
+    sessionID: string,
+    opts: { limit?: number; cursor?: string; order?: "asc" | "desc" } = {},
+    call: CallOptions = {},
+  ): Promise<MessagePage> {
+    const page = await this.request(call, (requestOptions) =>
+      this.sdk.message.list(
+        { sessionID, limit: opts.limit ?? 200, cursor: opts.cursor, order: opts.cursor ? undefined : opts.order },
+        requestOptions,
+      ),
     )
-    return { data: page.data, previous: page.cursor.previous ?? null }
+    return { data: page.data, next: page.cursor.next ?? null }
   }
 
   /**
-   * Every message in a session, oldest first. The endpoint pages from the
-   * newest message backwards, so walk the `previous` cursors and reverse.
+   * The newest page of a session's messages, oldest first.
+   *
+   * Asking for `order: desc` and reversing client-side is the only way to ask
+   * for "the last N": the cursor is `next`-only, so paging backwards is not
+   * possible (see `MessagePage`).
    */
-  async allMessages(sessionID: string, pageSize = 200): Promise<SessionMessageInfo[]> {
-    const newestFirst: SessionMessageInfo[] = []
-    let page = await this.listMessages(sessionID, { limit: pageSize })
-    newestFirst.push(...page.data)
-    let guard = 0
-    while (page.previous && page.data.length > 0 && guard++ < 200) {
-      page = await this.listMessages(sessionID, { limit: pageSize, cursor: page.previous })
-      newestFirst.push(...page.data)
+  async recentMessages(sessionID: string, opts: { limit?: number } & CallOptions = {}): Promise<SessionMessageInfo[]> {
+    const { limit, ...call } = opts
+    const page = await this.listMessages(sessionID, { order: "desc", limit: limit ?? 50 }, call)
+    return page.data.slice().reverse()
+  }
+
+  /**
+   * Every message in a session, oldest first.
+   *
+   * Paging walks forward from the oldest message with the `next` cursor; the
+   * `previous` cursor the server hands out answers with an empty page, so a
+   * backward walk silently stops after the first page.
+   */
+  async allMessages(
+    sessionID: string,
+    opts: { pageSize?: number; maxPages?: number } & CallOptions = {},
+  ): Promise<SessionMessageInfo[]> {
+    const { pageSize = 200, maxPages = 200, ...call } = opts
+    const messages: SessionMessageInfo[] = []
+    let cursor: string | undefined
+    for (let page = 0; page < maxPages; page++) {
+      const current = await this.listMessages(
+        sessionID,
+        cursor ? { limit: pageSize, cursor } : { limit: pageSize, order: "asc" },
+        call,
+      )
+      messages.push(...current.data)
+      if (!current.next || current.data.length === 0) break
+      cursor = current.next
     }
-    return newestFirst.reverse()
+    return messages
+  }
+
+  /** The model-visible conversation, as the server would send it. */
+  async context(sessionID: string, opts?: CallOptions): Promise<SessionMessageInfo[]> {
+    return this.request(opts, (requestOptions) => this.sdk.session.context({ sessionID }, requestOptions))
   }
 
   async prompt(
     sessionID: string,
     body: { text: string; files?: PromptFileInput[] },
+    opts?: CallOptions,
   ): Promise<SessionMessageID> {
-    const result = await ServerClient.wrap(
-      this.sdk.session.prompt({
-        sessionID,
-        text: body.text,
-        files: body.files?.map((file) => ({ uri: file.uri, name: file.name })),
-      }),
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.session.prompt(
+        {
+          sessionID,
+          text: body.text,
+          files: body.files?.map((file) => ({ uri: file.uri, name: file.name })),
+        },
+        requestOptions,
+      ),
     )
     return result.id
   }
 
-  async interrupt(sessionID: string): Promise<void> {
-    await ServerClient.wrap(this.sdk.session.interrupt({ sessionID }))
+  /** Run a stored command (`/name`) instead of a plain prompt. */
+  async command(
+    sessionID: string,
+    body: { name: string; text: string; files?: PromptFileInput[] },
+    opts?: CallOptions,
+  ): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.session.command(
+        {
+          sessionID,
+          name: body.name,
+          text: body.text,
+          files: body.files?.map((file) => ({ uri: file.uri, name: file.name })),
+        },
+        requestOptions,
+      ),
+    )
   }
 
-  async switchAgent(sessionID: string, agent: string): Promise<void> {
-    await ServerClient.wrap(this.sdk.session.switchAgent({ sessionID, agent }))
+  async interrupt(sessionID: string, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) => this.sdk.session.interrupt({ sessionID }, requestOptions))
   }
 
-  async switchModel(sessionID: string, model: ModelRef): Promise<void> {
-    await ServerClient.wrap(
-      this.sdk.session.switchModel({
-        sessionID,
-        model: { id: model.id, providerID: model.providerID, variant: model.variant },
-      }),
+  async switchAgent(sessionID: string, agent: string, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) => this.sdk.session.switchAgent({ sessionID, agent }, requestOptions))
+  }
+
+  async switchModel(sessionID: string, model: ModelRef, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.session.switchModel(
+        { sessionID, model: { id: model.id, providerID: model.providerID, variant: model.variant } },
+        requestOptions,
+      ),
     )
   }
 
   /* --------------------------- permission and forms -------------------------- */
 
-  async pendingPermissions(directory?: string | null): Promise<PermissionRequest[]> {
-    const result = await ServerClient.wrap(
-      this.sdk.permission.request.list(ServerClient.location(directory)),
+  async pendingPermissions(directory?: string | null, opts?: CallOptions): Promise<PermissionRequest[]> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.permission.request.list(ServerClient.location(directory), requestOptions),
     )
     return result.data
   }
@@ -345,26 +537,38 @@ export class ServerClient {
     sessionID: string,
     requestID: string,
     decision: "once" | "always" | "reject",
+    opts?: CallOptions,
   ): Promise<void> {
-    await ServerClient.wrap(this.sdk.permission.reply({ sessionID, requestID, decision }))
+    await this.request(opts, (requestOptions) =>
+      this.sdk.permission.reply({ sessionID, requestID, decision }, requestOptions),
+    )
   }
 
   /** Pending forms (the agent's `question` tool) for the whole location. */
-  async pendingForms(directory?: string | null): Promise<FormInfo[]> {
-    const result = await ServerClient.wrap(this.sdk.form.list(ServerClient.location(directory)))
+  async pendingForms(directory?: string | null, opts?: CallOptions): Promise<FormInfo[]> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.form.list(ServerClient.location(directory), requestOptions),
+    )
     return result.data
   }
 
-  async sessionForms(sessionID: string): Promise<FormInfo[]> {
-    return ServerClient.wrap(this.sdk.session.form.list({ sessionID })).catch(() => [] as FormInfo[])
+  /** The forms a single session is waiting on. */
+  async sessionForms(sessionID: string, opts?: CallOptions): Promise<FormInfo[]> {
+    return this.request(opts, (requestOptions) => this.sdk.session.form.list({ sessionID }, requestOptions)).catch(
+      () => [] as FormInfo[],
+    )
   }
 
-  async replyForm(sessionID: string, formID: string, answer: FormAnswer): Promise<void> {
-    await ServerClient.wrap(this.sdk.session.form.reply({ sessionID, formID, answer }))
+  async replyForm(sessionID: string, formID: string, answer: FormAnswer, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.session.form.reply({ sessionID, formID, answer }, requestOptions),
+    )
   }
 
-  async cancelForm(sessionID: string, formID: string): Promise<void> {
-    await ServerClient.wrap(this.sdk.session.form.cancel({ sessionID, formID }))
+  async cancelForm(sessionID: string, formID: string, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.session.form.cancel({ sessionID, formID }, requestOptions),
+    )
   }
 
   /* ---------------------------------- events --------------------------------- */
@@ -373,7 +577,9 @@ export class ServerClient {
    * Subscribe to the instance event stream.
    *
    * The generated client already parses SSE frames and yields decoded events;
-   * this only translates transport failures. Resolves when the stream ends.
+   * this only translates transport failures. Resolves when the stream ends, and
+   * never times out on its own — the caller's signal (and the stream store's
+   * liveness watchdog) decide when it is over.
    */
   async subscribe(
     onEvent: (event: V2Event) => void,
@@ -381,13 +587,15 @@ export class ServerClient {
   ): Promise<void> {
     let opened = false
     try {
-      for await (const event of this.sdk.event.subscribe({ signal: opts.signal })) {
-        if (!opened) {
-          opened = true
-          opts.onOpen?.()
+      await this.request({ timeoutMs: 0, signal: opts.signal }, async (requestOptions) => {
+        for await (const event of this.sdk.event.subscribe(requestOptions)) {
+          if (!opened) {
+            opened = true
+            opts.onOpen?.()
+          }
+          onEvent(event)
         }
-        onEvent(event)
-      }
+      })
     } catch (error) {
       if (opts.signal?.aborted) return
       throw toServerError(error)

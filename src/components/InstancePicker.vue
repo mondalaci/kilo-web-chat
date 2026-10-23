@@ -8,7 +8,7 @@ import { APP_NAME, BRAND_LETTER } from "@/brand"
 import { useApp } from "@/stores/app"
 
 const app = useApp()
-const { instances, scanning, connecting, connectError, credentialsFor, scan } = app.connection
+const { instances, scanning, connecting, connectError, storageError, credentialsFor, scan } = app.connection
 
 const origin = ref("")
 const password = ref("")
@@ -144,6 +144,7 @@ async function manualConnect() {
       </form>
 
       <p v-if="localError || connectError" class="error">{{ localError || connectError }}</p>
+      <p v-else-if="storageError" class="error">{{ storageError }}</p>
     </div>
   </div>
 </template>
