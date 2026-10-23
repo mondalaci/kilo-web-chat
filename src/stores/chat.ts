@@ -8,9 +8,12 @@ import type {
   FormAnswer,
   FormInfo,
   PermissionRequest,
+  SessionActive,
+  SessionInfo,
   SessionMessageAssistant,
   SessionMessageInfo,
   SessionStatus,
+  SessionStructuredError,
   V2Event,
 } from "@/api/types"
 
@@ -193,6 +196,103 @@ function toolBlock(messageID: string, id: string, name?: string): { message: Ses
   return { message, block }
 }
 
+/** Replace one assistant message, keeping the array's identity semantics. */
+function updateAssistant(messageID: string, update: (message: SessionMessageAssistant) => SessionMessageAssistant) {
+  const index = messages.value.findIndex((item) => item.id === messageID)
+  if (index === -1) return
+  const message = messages.value[index]
+  if (message.type !== "assistant") return
+  const next = messages.value.slice()
+  next[index] = update(message)
+  messages.value = next
+}
+
+/**
+ * Record a failure where it happened.
+ *
+ * A step or turn error belongs on the message it interrupted: it scrolls with
+ * the conversation and is not mistaken for a failure of whatever the reader
+ * does next. The banner is only for errors that have no message to attach to.
+ */
+function attachError(err: SessionStructuredError | undefined, messageID?: string) {
+  if (!err) return
+  const target = messageID ?? [...messages.value].reverse().find((item) => item.type === "assistant")?.id
+  if (!target) {
+    error.value = err.message || "The turn failed."
+    return
+  }
+  updateAssistant(target, (message) => ({ ...message, error: err }))
+}
+
+/**
+ * Whether the server has a turn running for this session.
+ *
+ * `GET /api/session/active` answers it directly and is preferred. The fallback
+ * reads the session record, whose `time.idle` is sticky: it describes the last
+ * turn that ended, not the one that may be running now, so it only means
+ * something next to the message it followed.
+ */
+function isRunning(
+  active: Record<string, SessionActive> | null,
+  session: SessionInfo | null,
+  sessionID: string,
+  newest: SessionMessageInfo | undefined,
+): boolean {
+  if (active) return sessionID in active
+  const idle = session?.time?.idle
+  if (idle === undefined) return false
+  return idle < (newest?.time?.created ?? 0)
+}
+
+/**
+ * Stop anything a finished turn left looking in flight.
+ *
+ * A tool block only leaves `streaming`/`running` when its own success or failure
+ * event lands, and an assistant message is only completed by `session.step.ended`.
+ * A turn that is interrupted — or whose events were lost in a gap in the stream —
+ * delivers neither, so the card spins and the message streams for ever although
+ * the server has long moved on. Only the last assistant message can be in flight.
+ */
+function settleUnfinishedTools(outcome: "succeeded" | "failed" | "interrupted") {
+  let at = messages.value.length - 1
+  while (at >= 0 && messages.value[at].type !== "assistant") at--
+  if (at < 0) return
+  const message = messages.value[at] as SessionMessageAssistant
+
+  const unfinished: SessionStructuredError = {
+    type: outcome,
+    message:
+      outcome === "interrupted"
+        ? "The turn was interrupted before this tool reported a result."
+        : "The turn ended before this tool reported a result.",
+  }
+  const content = message.content.map((block): AssistantContent => {
+    if (block.type !== "tool") return block
+    if (block.state.status !== "streaming" && block.state.status !== "running") return block
+    const input = block.state.status === "running" ? block.state.input : {}
+    return { ...block, state: { status: "error", input, error: unfinished } }
+  })
+  const settled: SessionMessageAssistant = {
+    ...message,
+    content,
+    time: { ...message.time, completed: message.time.completed ?? Date.now() },
+    // A retry note only describes a turn that is still waiting to try again.
+    retry: undefined,
+  }
+  const next = messages.value.slice()
+  next[at] = settled
+  messages.value = next
+  // The live index still points at the replaced blocks, so rebuild it.
+  live.delete(message.id)
+  seed([settled])
+}
+
+/** End the turn: nothing is running any more, so nothing may still look it. */
+function completeTurn(outcome: "succeeded" | "failed" | "interrupted") {
+  status.value = { type: "idle" }
+  settleUnfinishedTools(outcome)
+}
+
 export function useChat() {
   const isBusy = computed(() => status.value.type === "busy" || status.value.type === "retry")
 
@@ -200,6 +300,8 @@ export function useChat() {
     permissions.value.filter((request) => request.sessionID === currentSessionID.value),
   )
   const pendingForms = computed(() => forms.value.filter((form) => form.sessionID === currentSessionID.value))
+  /** The turn is parked on a question or a permission prompt, not streaming. */
+  const awaitingUser = computed(() => pendingPermissions.value.length > 0 || pendingForms.value.length > 0)
 
   function setMessages(next: SessionMessageInfo[]) {
     messages.value = next
@@ -214,10 +316,11 @@ export function useChat() {
     setMessages([])
     reconcileContext = { client, sessionID }
     try {
-      const [list, perms, pendingForms, active] = await Promise.all([
+      const [list, perms, pendingForms, session, active] = await Promise.all([
         client.allMessages(sessionID),
         client.pendingPermissions(directory).catch(() => [] as PermissionRequest[]),
         client.pendingForms(directory).catch(() => [] as FormInfo[]),
+        client.getSession(sessionID).catch(() => null),
         client.activeSessions(),
       ])
       // Ignore a response for a session the user already navigated away from.
@@ -225,8 +328,14 @@ export function useChat() {
       setMessages(list)
       permissions.value = perms
       forms.value = pendingForms
-      const running = active?.[sessionID]
-      status.value = running ? { type: "busy" } : { type: "idle" }
+      // Only the server knows what is running, and a message that never reports a
+      // result must not keep the view spinning: a turn that ended without its
+      // events arriving leaves exactly that shape behind.
+      if (isRunning(active, session, sessionID, list[list.length - 1])) {
+        status.value = { type: "busy" }
+      } else {
+        completeTurn(session?.outcome ?? "succeeded")
+      }
     } catch (err) {
       if (currentSessionID.value === sessionID) error.value = err instanceof Error ? err.message : String(err)
     } finally {
@@ -272,8 +381,29 @@ export function useChat() {
     }
   }
 
+  /**
+   * Stop the turn.
+   *
+   * A run parked on a question or a permission prompt is idle as far as the
+   * server is concerned, so interrupting would cancel nothing: the asks
+   * themselves are what hold it. Withdraw them first — the tool call then
+   * returns and the agent resumes — and interrupt only what still runs after.
+   */
   async function abort(client: ServerClient, sessionID: string) {
-    await client.interrupt(sessionID)
+    const asks = forms.value.filter((form) => form.sessionID === sessionID)
+    const requests = permissions.value.filter((request) => request.sessionID === sessionID)
+    await Promise.allSettled([
+      ...asks.map((form) => client.cancelForm(sessionID, form.id)),
+      ...requests.map((request) => client.replyPermission(sessionID, request.id, "reject")),
+    ])
+    // Clear locally too, in case the matching events arrive late or not at all.
+    forms.value = forms.value.filter((form) => form.sessionID !== sessionID)
+    permissions.value = permissions.value.filter((request) => request.sessionID !== sessionID)
+    try {
+      await client.interrupt(sessionID)
+    } catch {
+      /* nothing running to interrupt; the withdrawn asks are the stop */
+    }
     status.value = { type: "idle" }
   }
 
@@ -330,23 +460,37 @@ export function useChat() {
         status.value = event.data.status
         return
       }
-      case "session.idle": {
+      case "session.retry.scheduled": {
         if (event.data.sessionID !== currentSessionID.value) return
-        status.value = { type: "idle" }
-        void reconcileNow()
+        // The turn is still live — it is waiting to try again — so it stays busy
+        // while saying so, instead of looking like ordinary work.
+        const { attempt, error: retryError, assistantMessageID } = event.data
+        const at = event.data.at ?? Date.now()
+        status.value = { type: "retry", attempt, next: at, message: retryError?.message ?? "Retrying" }
+        updateAssistant(assistantMessageID, (message) => ({
+          ...message,
+          retry: { attempt, at, error: retryError ?? { type: "retry", message: "Retrying" } },
+        }))
         return
       }
+      case "session.idle":
       case "session.execution.succeeded":
+      case "session.execution.failed":
       case "session.execution.interrupted": {
         if (event.data.sessionID !== currentSessionID.value) return
-        status.value = { type: "idle" }
-        void reconcileNow()
-        return
-      }
-      case "session.execution.failed": {
-        if (event.data.sessionID !== currentSessionID.value) return
-        status.value = { type: "idle" }
-        error.value = event.data.error?.message ?? "The agent run failed."
+        // A failed execution carries the reason, and nothing else reports it.
+        if (event.type === "session.execution.failed") attachError(event.data.error)
+        // "interrupted" is the one that used to leave the view spinning:
+        // interrupting produces `session.execution.interrupted` — a terminal
+        // event of its own — so the turn has to end here as well, or the last
+        // message keeps its streaming caret after the step is already over.
+        const outcome =
+          event.type === "session.execution.failed"
+            ? "failed"
+            : event.type === "session.execution.interrupted"
+              ? "interrupted"
+              : "succeeded"
+        completeTurn(outcome)
         void reconcileNow()
         return
       }
@@ -397,7 +541,9 @@ export function useChat() {
           message.error = event.data.error
           if (event.data.tokens) message.tokens = event.data.tokens
         }
-        error.value = event.data.error?.message ?? "The model returned an error."
+        // The failure belongs to the step it happened in, so it is shown on that
+        // message. Mirroring it into the banner as well printed the same text
+        // twice, one line above the other, every time a step was interrupted.
         void reconcileNow()
         return
       }
@@ -536,6 +682,7 @@ export function useChat() {
     messages,
     status,
     isBusy,
+    awaitingUser,
     loading,
     sending,
     error,

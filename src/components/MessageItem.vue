@@ -80,6 +80,12 @@ const errorMessage = computed(() => {
   return message.error.message || "The model returned an error."
 })
 
+/** A turn waiting to try again after a failed step. */
+const retryNote = computed(() => {
+  const retry = assistant.value?.retry
+  return retry ? `Retrying (attempt ${retry.attempt})…` : null
+})
+
 const meta = computed(() => {
   const message = assistant.value
   if (!message) return null
@@ -145,6 +151,7 @@ const shellExit = computed(() => {
 
       <div v-if="streaming" class="caret"></div>
       <div v-if="errorMessage" class="error">{{ errorMessage }}</div>
+      <div v-if="retryNote" class="retry">{{ retryNote }}</div>
     </div>
 
     <div v-else-if="shell" class="shell-row">
@@ -266,6 +273,12 @@ const shellExit = computed(() => {
   border-radius: var(--radius-sm);
   color: var(--danger);
   font-size: 13px;
+}
+.retry {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
 }
 /* Shell commands run from the composer are shown as a compact card. */
 .shell-row {

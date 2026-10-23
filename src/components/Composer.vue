@@ -11,7 +11,7 @@ import { useServer } from "@/stores/server"
 import { shortcutsVisible } from "@/stores/shortcuts"
 
 const app = useApp()
-const { sending, isBusy } = app.chat
+const { sending, isBusy, awaitingUser } = app.chat
 const { abort, sendMessage } = app
 const { selectedModelInfo, selectedModelVariants } = useServer()
 
@@ -164,7 +164,7 @@ function onKeydown(event: KeyboardEvent) {
           </span>
         </div>
         <div class="bar-right">
-          <button v-if="isBusy" class="send stop" title="Stop (Alt+X)" @click="stop">
+          <button v-if="isBusy || awaitingUser" class="send stop" title="Stop (Alt+X)" @click="stop">
             <kbd v-if="shortcutsVisible" class="kbd floating">X</kbd>
             <Square :size="14" fill="currentColor" />
           </button>

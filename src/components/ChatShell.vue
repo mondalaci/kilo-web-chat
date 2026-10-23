@@ -16,7 +16,7 @@ import { formatConversationDate, formatConversationDateTime, formatCost } from "
 
 const app = useApp()
 const { current, currentID } = app.sessions
-const { error, messages, isBusy } = app.chat
+const { error, messages, isBusy, awaitingUser } = app.chat
 const { models, selectedModelInfo } = app.server
 const { newChat } = app
 
@@ -177,7 +177,7 @@ function onKeyDown(event: KeyboardEvent) {
       break
     case shortcutKeys.stop:
       event.preventDefault()
-      if (isBusy.value) void app.abort()
+      if (isBusy.value || awaitingUser.value) void app.abort()
       break
     case shortcutKeys.newChat:
       event.preventDefault()

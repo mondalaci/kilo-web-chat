@@ -57,6 +57,7 @@ export type {
   SessionMessageToolStateStreaming,
   SessionMessageUser,
   SessionStatus,
+  SessionStructuredError,
   SkillInfo,
   TokenUsageInfo,
   ToolContent,
