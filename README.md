@@ -129,23 +129,23 @@ change applies on the next reload — no rebuild or restart.
 ```
 
 `defaultAgent` selects an agent on load, overriding the last-used saved agent,
-as long as it names an agent the server exposes. A `?agent=` GET param still
-takes precedence when present; an absent, empty (`null`), or invalid value
-leaves the last-used agent in effect.
+as long as it names an agent the server exposes; an absent, empty (`null`), or
+invalid value leaves the last-used agent in effect.
 
 ## URL parameters
 
 The URL can preselect a chat and prefill the composer:
 
 - `?session=<id>` — open an existing chat.
-- `?agent=<name>` — preselect an agent (e.g. `plan`), applied when it exists.
+- `?project=<path>` — open that project for one visit, without moving the
+  project the app remembers.
 - `?query=<text>` — prefill the composer with text.
 - `?submit=1` — send the prefilled query immediately, creating a new chat if
   none is open. A bare `?submit` also counts as enabled. After sending, the
-  `query`/`agent`/`submit` params are removed so a reload does not resend.
+  `query`/`submit` params are removed so a reload does not resend.
 
 ```text
-http://localhost:4173/?agent=plan&query=Review%20this%20repo&submit=1
+http://localhost:4173/?project=/home/me/repo&query=Review%20this%20repo&submit=1
 ```
 
 ## How detection works
@@ -246,11 +246,9 @@ src/
   therefore offers *Archive* (`PATCH` with `archived: true`), and the archive
   view is where a conversation can be restored — or deleted permanently, after
   a confirmation.
-- **Commands** are offered as a `/` autocomplete menu in the composer; a name
-  that matches a stored command runs it through the server (`POST
-  /api/session/{id}/command`) instead of sending its text, and whatever follows
-  the name becomes the command's input. An unknown `/name` is sent as plain
-  text.
+- **Stored commands are not surfaced**: the app does not run `/name`
+  invocations from the composer. The server's command list is not fetched at
+  all; typing `/name` sends it as ordinary text.
 - The optional content-search service (the `opencode-search` sibling
   repository, bound in `src/api/search.ts`) indexes a server database
   independently of the opencode HTTP API. When it is not running, search falls

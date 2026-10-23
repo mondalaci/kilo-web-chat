@@ -12,7 +12,6 @@ import { useSessions } from "./sessions"
 import {
   clearProjectParam,
   clearPromptParams,
-  readAgentParam,
   readAutoSubmitParam,
   readProjectParam,
   readQueryParam,
@@ -117,8 +116,7 @@ export function useApp() {
 
   /**
    * Apply the runtime config's `defaultAgent` (from `opencode-web-chat.json`)
-   * once the agent list is known. It overrides the last-used saved agent, but a
-   * `?agent=` GET param applied afterwards still takes precedence.
+   * once the agent list is known. It overrides the last-used saved agent.
    */
   async function applyRuntimeDefaults() {
     const { defaultAgent } = await loadRuntimeConfig()
@@ -128,18 +126,12 @@ export function useApp() {
   }
 
   /**
-   * Apply one-time link params (`?agent=`, `?query=`, `?submit=`) after a
-   * connection is established. The agent is only applied when it exists, and the
-   * query is prefilled into the composer; with `submit` it is sent right away
-   * (creating a new chat if none is open) and the params are cleared so a reload
-   * does not resend it.
+   * Apply one-time link params (`?query=`, `?submit=`) after a connection is
+   * established. The query is prefilled into the composer; with `submit` it is
+   * sent right away (creating a new chat if none is open) and the params are
+   * cleared so a reload does not resend it.
    */
   async function applyLinkParams() {
-    const agent = readAgentParam()
-    if (agent && server.modes.value.some((item) => item.id === agent)) {
-      await setAgent(agent)
-    }
-
     const query = readQueryParam()
     if (query !== null) draft.value = query
 
@@ -231,25 +223,6 @@ export function useApp() {
     // and the picker's choice may not have reached the session yet.
     await chat.send(client, sessionID, {
       text: content,
-      files,
-      model: server.selectedModel.value ?? undefined,
-      agent: server.selectedAgent.value ?? undefined,
-    })
-  }
-
-  /** Run a stored command (`/name`) in the open conversation. */
-  async function sendCommand(name: string, text: string, files: PromptFileInput[] = []) {
-    const client = connection.client.value
-    if (!client) return
-    let sessionID = sessions.currentID.value
-    if (!sessionID) {
-      const session = await newChat()
-      if (!session) return
-      sessionID = session.id
-    }
-    await chat.sendCommand(client, sessionID, {
-      name,
-      text,
       files,
       model: server.selectedModel.value ?? undefined,
       agent: server.selectedAgent.value ?? undefined,
@@ -368,7 +341,6 @@ export function useApp() {
     openSessionByID,
     newChat,
     sendMessage,
-    sendCommand,
     abort,
     archiveSession,
     openArchive,

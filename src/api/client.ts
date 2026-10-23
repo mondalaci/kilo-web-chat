@@ -14,7 +14,6 @@ import type {
   SessionMessageID,
   SessionMessageInfo,
   SkillInfo,
-  Command,
   Provider,
   V2Event,
 } from "./types"
@@ -309,13 +308,6 @@ export class ServerClient {
     return this.request(opts, (requestOptions) => this.sdk.project.list(undefined, requestOptions))
   }
 
-  async commands(directory?: string | null, opts?: CallOptions): Promise<Command[]> {
-    const result = await this.request(opts, (requestOptions) =>
-      this.sdk.command.list(ServerClient.location(directory), requestOptions),
-    )
-    return result.data
-  }
-
   async skills(directory?: string | null, opts?: CallOptions): Promise<SkillInfo[]> {
     const result = await this.request(opts, (requestOptions) =>
       this.sdk.skill.list(ServerClient.location(directory), requestOptions),
@@ -486,25 +478,6 @@ export class ServerClient {
       ),
     )
     return result.id
-  }
-
-  /** Run a stored command (`/name`) instead of a plain prompt. */
-  async command(
-    sessionID: string,
-    body: { name: string; text: string; files?: PromptFileInput[] },
-    opts?: CallOptions,
-  ): Promise<void> {
-    await this.request(opts, (requestOptions) =>
-      this.sdk.session.command(
-        {
-          sessionID,
-          name: body.name,
-          text: body.text,
-          files: body.files?.map((file) => ({ uri: file.uri, name: file.name })),
-        },
-        requestOptions,
-      ),
-    )
   }
 
   async interrupt(sessionID: string, opts?: CallOptions): Promise<void> {

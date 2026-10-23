@@ -1,7 +1,7 @@
 import { computed, ref } from "vue"
 import type { ServerClient } from "@/api/client"
 import { normalizeOrigin } from "@/api/discovery"
-import type { Agent, Command, Model, ModelRef, Project, Provider, SkillInfo } from "@/api/types"
+import type { Agent, Model, ModelRef, Project, Provider, SkillInfo } from "@/api/types"
 import { baseCost, isFreeModel, variantIDs } from "@/api/types"
 
 const PREFS_KEY = "opencode-web-chat.prefs"
@@ -49,7 +49,6 @@ const agents = ref<Agent[]>([])
 const models = ref<Model[]>([])
 const providers = ref<Provider[]>([])
 const connectedProviderIDs = ref<string[]>([])
-const commands = ref<Command[]>([])
 const skills = ref<SkillInfo[]>([])
 const projects = ref<Project[]>([])
 const configValues = ref<{ model?: string; defaultAgent?: string; username?: string } | null>(null)
@@ -172,7 +171,7 @@ export function useServer() {
       const dir = projectDirectory ?? saved.directory
       directory.value = dir ?? null
 
-      const [agentList, modelList, providerList, projectList, config, defaultModel, credentialIntegrations, commandList, skillList] =
+      const [agentList, modelList, providerList, projectList, config, defaultModel, credentialIntegrations, skillList] =
         await Promise.all([
           client.agents(dir).catch(() => [] as Agent[]),
           client.models(dir).catch(() => [] as Model[]),
@@ -181,7 +180,6 @@ export function useServer() {
           client.configValues(dir).catch(() => null),
           client.defaultModel(dir).catch(() => null),
           client.connectedIntegrations().catch(() => new Set<string>()),
-          client.commands(dir).catch(() => [] as Command[]),
           client.skills(dir).catch(() => [] as SkillInfo[]),
         ])
 
@@ -195,7 +193,6 @@ export function useServer() {
         .filter((provider) => typeof provider.settings?.apiKey === "string" && provider.settings.apiKey.length > 0)
         .map((provider) => provider.id)
       connectedProviderIDs.value = [...new Set([...credentialIntegrations, ...withKeys])]
-      commands.value = commandList
       skills.value = skillList
       // Don't clobber the current agent/model when only switching project.
       if (changedOrigin || !selectedModel.value) applyDefaults()
@@ -242,7 +239,6 @@ export function useServer() {
     models.value = []
     providers.value = []
     connectedProviderIDs.value = []
-    commands.value = []
     skills.value = []
     projects.value = []
     configValues.value = null
@@ -295,7 +291,6 @@ export function useServer() {
     models,
     providers,
     connectedProviderIDs,
-    commands,
     skills,
     projects,
     configValues,

@@ -16,11 +16,6 @@ export function readQueryParam(): string | null {
   return readParam("query")
 }
 
-/** Agent/mode name to preselect, from `?agent=`. */
-export function readAgentParam(): string | null {
-  return readParam("agent")
-}
-
 /**
  * Project (location directory) to open, from `?project=`.
  *
@@ -41,7 +36,7 @@ export function readAutoSubmitParam(): boolean {
 
 /** Drop one-time prompt params so a reload does not resend the query. */
 export function clearPromptParams() {
-  dropParams(["query", "agent", "submit"])
+  dropParams(["query", "submit"])
 }
 
 /** Drop the one-time `?project=` so a reload returns to the remembered project. */

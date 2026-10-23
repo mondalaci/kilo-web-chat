@@ -488,43 +488,6 @@ export function useChat() {
   }
 
   /**
-   * Run a stored command (`/name`).
-   *
-   * The server owns the prompt the command expands to, so the conversation
-   * shows the invocation the user typed; the copy is optimistic because the
-   * command produces no user message event of its own.
-   */
-  async function sendCommand(
-    client: ServerClient,
-    sessionID: string,
-    input: { name: string; text: string; files?: PromptFileInput[]; model?: ModelRef; agent?: string },
-  ) {
-    sending.value = true
-    error.value = null
-    scrollToBottomRequest.value++
-    try {
-      await commitSelection(client, sessionID, input)
-      await client.command(sessionID, { name: input.name, text: input.text, files: input.files })
-      messages.value = [
-        ...messages.value,
-        {
-          id: `local-${Date.now()}`,
-          type: "user",
-          text: `/${input.name}${input.text ? ` ${input.text}` : ""}`,
-          files: fileAttachments(input.files),
-          time: { created: Date.now() },
-        },
-      ]
-      status.value = { type: "busy" }
-    } catch (err) {
-      error.value = err instanceof Error ? err.message : String(err)
-      throw err
-    } finally {
-      sending.value = false
-    }
-  }
-
-  /**
    * Stop the turn.
    *
    * A run parked on a question or a permission prompt is idle as far as the
@@ -847,7 +810,6 @@ export function useChat() {
     scrollToBottomRequest,
     open,
     send,
-    sendCommand,
     abort,
     replyPermission,
     replyForm,

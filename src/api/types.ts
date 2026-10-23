@@ -73,7 +73,6 @@ import type { AgentInfo, ModelInfo, SessionMessageAssistant } from "@opencode/cl
 // uses the short form.
 export type Agent = AgentInfo
 export type Model = ModelInfo
-export type Command = import("@opencode/client").CommandInfo
 export type Provider = import("@opencode/client").ProviderInfo
 
 /** Everything an assistant message can contain, in order. */
