@@ -4,7 +4,8 @@ import { ArrowRight, Plus, RefreshCw, Server, KeyRound } from "lucide-vue-next"
 import Spinner from "./Spinner.vue"
 import { DEFAULT_USERNAME } from "@/api/client"
 import { normalizeOrigin, FALLBACK_PORT, type InstanceInfo } from "@/api/discovery"
-import { APP_NAME, BRAND_LETTER } from "@/brand"
+import { APP_NAME } from "@/brand"
+import iconUrl from "../../build/icon.png"
 import { useApp } from "@/stores/app"
 
 const app = useApp()
@@ -65,7 +66,7 @@ async function manualConnect() {
   <div class="picker">
     <div class="panel">
       <header class="head">
-        <div class="logo" aria-hidden="true">{{ BRAND_LETTER }}</div>
+        <img class="logo" :src="iconUrl" alt="" />
         <div>
           <h1>{{ APP_NAME }}</h1>
           <p>Connect to an opencode v2 server</p>
@@ -175,15 +176,11 @@ async function manualConnect() {
   margin-bottom: 18px;
 }
 .logo {
+  /* The app icon itself, at the picker's size. */
   width: 44px;
   height: 44px;
-  border-radius: 12px;
-  background: var(--accent);
-  color: var(--accent-text);
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-  font-size: 22px;
+  display: block;
+  flex: none;
 }
 h1 {
   margin: 0;

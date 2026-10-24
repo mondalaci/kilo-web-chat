@@ -22,7 +22,7 @@ import Spinner from "./Spinner.vue"
 import ProjectSelector from "./ProjectSelector.vue"
 import SidebarSearch from "./SidebarSearch.vue"
 import ArchivePanel from "./ArchivePanel.vue"
-import { BRAND_LETTER } from "@/brand"
+import iconUrl from "../../build/icon.png"
 import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
 import { theme, toggleTheme } from "@/theme"
@@ -170,7 +170,7 @@ function onSessionsKeydown(event: KeyboardEvent) {
     <ArchivePanel v-else-if="archiveOpen" />
     <template v-else>
     <header class="head">
-      <span class="logo">{{ BRAND_LETTER }}</span>
+      <img class="logo" :src="iconUrl" alt="" />
       <ProjectSelector />
       <button class="icon search-btn" title="Search conversations (Alt+F)" @click="openSearch()">
         <Search :size="16" />
@@ -269,16 +269,11 @@ function onSessionsKeydown(event: KeyboardEvent) {
   padding: 10px;
 }
 .logo {
+  /* The app icon itself, so the header carries no second drawing of the logo. */
   flex: none;
   width: 26px;
   height: 26px;
-  border-radius: 7px;
-  background: var(--accent);
-  color: var(--accent-text);
-  display: grid;
-  place-items: center;
-  font-weight: 700;
-  font-size: 14px;
+  display: block;
 }
 /* Project selector fills the space between the logo and the new-chat button. */
 .head :deep(.opencode-project-root) {

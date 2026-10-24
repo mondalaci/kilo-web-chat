@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "icon": "convert -background none build/icon-source.png -resize 512x512 build/icon.png && cp build/icon.png public/icon.png"
   },
   "dependencies": {
     "@opencode/client": "2.1.3",
