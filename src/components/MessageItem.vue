@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue"
-import { Info, Sparkles, Terminal, User } from "lucide-vue-next"
+import { computed, ref } from "vue"
+import { ChevronRight, Info, Sparkles, Terminal, User } from "lucide-vue-next"
 import type {
   AssistantContent,
   AssistantTool,
@@ -57,18 +57,40 @@ const shell = computed<SessionMessageShell | null>(() =>
  * Server notices and skill activations are authored by neither side of the
  * conversation. They keep the assistant's avatar slot so their text starts at
  * the same left edge as assistant prose, and the card fills the rest of the row.
+ *
+ * A notice is usually a line. The harness also delivers whole documents this way
+ * — an instruction update such as the Code Mode tool catalog arrives as a
+ * `system` message of several kilobytes — so a long one folds behind a labelled
+ * header rather than filling the conversation with raw markdown.
  */
 const notice = computed(() => {
   switch (props.message.type) {
     case "system":
-    case "synthetic":
-      return { text: props.message.text, icon: Info }
+    case "synthetic": {
+      const text = props.message.text ?? ""
+      return {
+        text,
+        icon: Info,
+        label: props.message.description || "System notice",
+        preview: text.split("\n")[0]?.trim() ?? "",
+        foldable: text.length > 140 || text.includes("\n"),
+      }
+    }
     case "skill":
-      return { text: `Activated skill ${props.message.name}`, icon: Sparkles }
+      return {
+        text: `Activated skill ${props.message.name}`,
+        icon: Sparkles,
+        label: "",
+        preview: "",
+        foldable: false,
+      }
     default:
       return null
   }
 })
+
+/** A folded notice stays closed until it is asked for. */
+const noticeOpen = ref(false)
 
 const compaction = computed(() => {
   if (props.message.type !== "compaction") return null
@@ -190,9 +212,25 @@ const shellExit = computed(() => {
       <span v-if="compaction.failure" class="compaction-error">{{ compaction.failure }}</span>
     </div>
 
-    <div v-else-if="notice" class="notice">
-      <component :is="notice.icon" :size="14" class="notice-icon" aria-hidden="true" />
-      <p class="notice-text">{{ notice.text }}</p>
+    <div v-else-if="notice" class="notice" :class="{ folded: notice.foldable }">
+      <button
+        v-if="notice.foldable"
+        class="notice-head"
+        :aria-expanded="noticeOpen"
+        @click="noticeOpen = !noticeOpen"
+      >
+        <component :is="notice.icon" :size="14" class="notice-icon" aria-hidden="true" />
+        <span class="notice-label">{{ notice.label }}</span>
+        <span class="notice-preview">{{ notice.preview }}</span>
+        <ChevronRight :size="14" class="notice-chevron" :class="{ open: noticeOpen }" />
+      </button>
+      <div v-else class="notice-line">
+        <component :is="notice.icon" :size="14" class="notice-icon" aria-hidden="true" />
+        <p class="notice-text">{{ notice.text }}</p>
+      </div>
+      <!-- Shown as it arrived: this is the text the model was handed, down to its
+           markdown furniture. -->
+      <div v-if="notice.foldable && noticeOpen" class="notice-body">{{ notice.text }}</div>
     </div>
 
     <div v-if="isUser" class="avatar" aria-hidden="true"><User :size="15" /></div>
@@ -383,6 +421,57 @@ const shellExit = computed(() => {
   background: var(--bg-elevated);
   font-size: 12.5px;
   color: var(--text-muted);
+}
+/* A notice long enough to be a document: one line that opens onto the whole
+   text, so an instruction update does not push the conversation off screen. */
+.notice.folded {
+  display: block;
+  padding: 0;
+}
+.notice-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.notice-head:hover {
+  color: var(--text);
+}
+.notice-label {
+  flex: none;
+  color: var(--text);
+}
+.notice-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.notice-chevron {
+  flex: none;
+  transition: transform 0.15s ease;
+}
+.notice-chevron.open {
+  transform: rotate(90deg);
+}
+.notice-body {
+  max-height: 260px;
+  overflow: auto;
+  padding: 9px 12px 10px;
+  border-top: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .notice-icon {
   flex: none;
