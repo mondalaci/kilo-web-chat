@@ -8,6 +8,8 @@ It talks to the server's HTTP API through the official
 wire format is the generated contract that ships with the server version it
 targets (see the dependency version in `package.json`).
 
+![OpenCode Chat](docs/screenshots/hero.png)
+
 ## Features
 
 - **Instance discovery** — probes local ports for v2 servers (`GET /api/info`),
