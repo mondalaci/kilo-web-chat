@@ -45,12 +45,6 @@ export function defaultValues(form: FormInfo): FormAnswerBody {
   return values
 }
 
-/** A lookup over the form's defaults, for asking what would be visible. */
-export function defaultLookup(form: FormInfo): FieldValues {
-  const values = defaultValues(form)
-  return (key) => values[key]
-}
-
 /** Coerce a raw value to the shape the field's type expects. */
 export function normalizeValue(field: FormField, value: unknown): FormValue {
   if (field.type === "multiselect") return Array.isArray(value) ? (value as string[]) : []
@@ -67,7 +61,7 @@ export function normalizeValue(field: FormField, value: unknown): FormValue {
  * Whether a line typed in the composer can answer this field.
  *
  * A field that offers options only takes one of them — unless it also invites a
- * custom answer — while a checkbox, a multiple choice or an external link has
+ * custom answer — while a Yes/No, a multiple choice or an external link has
  * nothing a typed line could fill.
  */
 export function acceptsText(field: FormField): boolean {
@@ -76,11 +70,45 @@ export function acceptsText(field: FormField): boolean {
   return true
 }
 
-/** Whether the card itself has anything to click, so it needs its Submit button. */
-export function hasCardControls(form: FormInfo): boolean {
-  return visibleFields(form, defaultLookup(form)).some(
-    (field) => Boolean("options" in field && field.options?.length) || field.type === "boolean",
-  )
+/**
+ * Whether the card should answer this form on its own.
+ *
+ * True once every field it shows has an answer, so the click that lands the last
+ * choice sends the form instead of waiting for a Submit press. A form holding a
+ * field with no end to click never settles and keeps its button.
+ */
+export function answersSettle(form: FormInfo, values: FieldValues): boolean {
+  const fields = visibleFields(form, values)
+  return fields.length > 0 && fields.every((field) => settled(field, values(field.key)))
+}
+
+/** Whether one field is done with: an answer in hand, or nothing left to answer here. */
+function settled(field: FormField, value: unknown): boolean {
+  if (hasNoEnd(field)) return false
+  if (hasAnswer(field, value)) return true
+  // A choice still to make. The question tool never marks a question required,
+  // yet every one of them waits for a pick.
+  if (field.type === "boolean" || (field.type === "string" && field.options?.length)) return false
+  // What is left is typed: an empty optional input is not worth sitting on.
+  return !("required" in field && field.required)
+}
+
+/** Whether a field holds an answer: false is one, so an untouched Yes/No holds none. */
+function hasAnswer(field: FormField, value: unknown): boolean {
+  if (field.type === "boolean") return typeof value === "boolean"
+  if (field.type === "number" || field.type === "integer") return typeof value === "number" && Number.isFinite(value)
+  if (Array.isArray(value)) return value.length > 0
+  return typeof value === "string" && value.trim() !== ""
+}
+
+/** The fields that leave a form no click to end on: a multiple choice and a browser step. */
+function hasNoEnd(field: FormField): boolean {
+  return field.type === "multiselect" || field.type === "external"
+}
+
+/** Whether the card keeps its Submit button: a form holding a field with no end to click. */
+export function needsSubmit(form: FormInfo, values: FieldValues): boolean {
+  return visibleFields(form, values).some(hasNoEnd)
 }
 
 /**

@@ -3,7 +3,7 @@ import { computed, reactive, ref } from "vue"
 import { ExternalLink, HelpCircle, ShieldAlert, X } from "lucide-vue-next"
 import type { FormField, FormInfo, FormValue } from "@/api/types"
 import { useApp } from "@/stores/app"
-import { isVisible, visibleFields } from "@/utils/form"
+import { answersSettle, isVisible, needsSubmit, visibleFields } from "@/utils/form"
 
 const app = useApp()
 const { pendingPermissions, pendingForms } = app.chat
@@ -30,13 +30,18 @@ function answerText(form: FormInfo, field: FormField): string {
   return typeof value === "string" ? value : ""
 }
 
+/** The draft answers of one form, for the helpers that read what it shows. */
+function lookup(form: FormInfo) {
+  return (key: string) => answers[`${form.id}:${key}`]
+}
+
 /** Whether a conditional field is visible given the current draft answers. */
 function visible(form: FormInfo, field: FormField): boolean {
-  return isVisible(field, (key) => answers[`${form.id}:${key}`])
+  return isVisible(field, lookup(form))
 }
 
 function formFields(form: FormInfo): FormField[] {
-  return visibleFields(form, (key) => answers[`${form.id}:${key}`])
+  return visibleFields(form, lookup(form))
 }
 
 /** Single-choice selection for a `string` field that has options. */
@@ -46,6 +51,7 @@ function picked(form: FormInfo, field: FormField, value: string): boolean {
 
 function pick(form: FormInfo, field: FormField, value: string) {
   answers[key(form, field)] = picked(form, field, value) ? "" : value
+  submitIfSettled(form)
 }
 
 function toggled(form: FormInfo, field: FormField, value: string): boolean {
@@ -60,6 +66,13 @@ function toggle(form: FormInfo, field: FormField, value: string) {
   if (index === -1) list.push(value)
   else list.splice(index, 1)
   answers[key(form, field)] = list
+  submitIfSettled(form)
+}
+
+/** A Yes/No click: the pair answers the field, and may land the form's last choice. */
+function chooseBoolean(form: FormInfo, field: FormField, value: boolean) {
+  setAnswer(form, field, value)
+  submitIfSettled(form)
 }
 
 function optionValues(field: FormField): string[] {
@@ -122,13 +135,23 @@ function missingRequired(form: FormInfo): boolean {
 }
 
 async function submit(form: FormInfo) {
-  if (missingRequired(form)) return
+  if (submitting.value === form.id || missingRequired(form)) return
   submitting.value = form.id
   try {
     await replyForm(form, buildAnswer(form))
   } finally {
     submitting.value = null
   }
+}
+
+/** Answer a form the moment its last choice lands: the card keeps no Submit button. */
+function submitIfSettled(form: FormInfo) {
+  if (answersSettle(form, lookup(form))) void submit(form)
+}
+
+/** Whether the card keeps its Submit button: a form holding a field with no end to click. */
+function showsSubmit(form: FormInfo): boolean {
+  return needsSubmit(form, lookup(form))
 }
 
 function dismiss(form: FormInfo) {
@@ -204,14 +227,14 @@ const isEmpty = computed(() => !pendingPermissions.value.length && !pendingForms
           <button
             class="option"
             :class="{ picked: answers[key(form, field)] === true }"
-            @click="answers[key(form, field)] = true"
+            @click="chooseBoolean(form, field, true)"
           >
             <span class="option-label">Yes</span>
           </button>
           <button
             class="option"
             :class="{ picked: answers[key(form, field)] === false }"
-            @click="answers[key(form, field)] = false"
+            @click="chooseBoolean(form, field, false)"
           >
             <span class="option-label">No</span>
           </button>
@@ -226,6 +249,7 @@ const isEmpty = computed(() => !pendingPermissions.value.length && !pendingForms
           :step="field.type === 'integer' ? 1 : 'any'"
           :placeholder="field.title || field.key"
           @input="setNumber(form, field, ($event.target as HTMLInputElement).value)"
+          @keydown.enter.prevent="submit(form)"
         />
 
         <!-- external link -->
@@ -254,7 +278,9 @@ const isEmpty = computed(() => !pendingPermissions.value.length && !pendingForms
         />
       </div>
 
-      <div class="actions">
+      <!-- A form that keeps its button: nothing on the card ends a multiple
+           choice or a browser step, so those are sent by hand. -->
+      <div v-if="showsSubmit(form)" class="actions">
         <button class="primary" :disabled="submitting === form.id || missingRequired(form)" @click="submit(form)">
           Submit
         </button>

@@ -21,7 +21,10 @@ targets (see the dependency version in `package.json`).
   `build` agent; there is no agent picker.
 - **Interactive prompts** — permission requests (allow once / always / deny) and
   agent forms (options, multi-select, yes/no, numbers, free text), with a
-  free-form question answerable by typing it straight into the composer.
+  free-form question answerable by typing it straight into the composer. A form
+  sends itself the moment its last choice lands; only one that nothing on the
+  card can end — a multiple choice, or a step finished in a browser — keeps a
+  Submit button.
 - **Session management** — new chat, rename, archive (reversibly) with a
   restore/delete view, project switching, live status.
 - **Conversation search** — server-side title search with cursor paging, plus
