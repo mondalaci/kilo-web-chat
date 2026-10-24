@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue"
+import { nextTick, ref, watch } from "vue"
 import {
   DropdownMenuContent,
   DropdownMenuItem,
@@ -10,13 +10,10 @@ import {
 } from "reka-ui"
 import {
   Archive,
-  LogOut,
   MessageSquarePlus,
   MoreHorizontal,
-  Moon,
   Pencil,
   Search,
-  Sun,
 } from "lucide-vue-next"
 import Spinner from "./Spinner.vue"
 import ProjectSelector from "./ProjectSelector.vue"
@@ -25,40 +22,17 @@ import ArchivePanel from "./ArchivePanel.vue"
 import iconUrl from "../../build/icon.png"
 import { useApp } from "@/stores/app"
 import { relativeTime } from "@/utils/format"
-import { theme, toggleTheme } from "@/theme"
 import { shortcutsVisible, openRequests } from "@/stores/shortcuts"
 import { openSearch, searchOpen } from "@/stores/search"
 import { archiveOpen } from "@/stores/archive"
 
 const app = useApp()
 const { sorted, currentID, loading } = app.sessions
-const { connected, connectError } = app.connection
-const { live, connecting } = app.live
-const { isBusy } = app.chat
-const { newChat, selectSession, archiveSession, openArchive, renameSession, disconnect } = app
+const { newChat, selectSession, archiveSession, openArchive, renameSession } = app
 
 const editingID = ref<string | null>(null)
 const editTitle = ref("")
 const editInput = ref<HTMLInputElement | null>(null)
-
-type ConnectionState = "offline" | "connecting" | "working" | "live" | "reconnecting"
-const connectionState = computed<ConnectionState>(() => {
-  if (!connected.value) return "offline"
-  if (connecting.value) return "connecting"
-  if (isBusy.value) return "working"
-  if (live.value) return "live"
-  return "reconnecting"
-})
-const connectionLabel = computed(
-  () =>
-    ({
-      offline: "offline",
-      connecting: "connecting…",
-      working: "working",
-      live: "live",
-      reconnecting: "reconnecting…",
-    })[connectionState.value],
-)
 
 function setRenameInput(el: Element | { $el?: Element } | null) {
   if (!el) {
@@ -231,23 +205,6 @@ function onSessionsKeydown(event: KeyboardEvent) {
       </nav>
       <kbd v-if="shortcutsVisible" class="kbd floating">S</kbd>
     </div>
-
-    <footer class="foot">
-      <div class="conn" :class="connectionState" :title="connectError ?? connected?.origin">
-        <div class="conn-text">
-          <span class="conn-origin">{{ connected?.origin ?? "Not connected" }}</span>
-          <span class="conn-status">{{ connectionLabel }}</span>
-        </div>
-        <span class="conn-dot"></span>
-      </div>
-      <div class="foot-actions">
-        <button class="icon" :title="theme === 'dark' ? 'Light theme' : 'Dark theme'" @click="toggleTheme()">
-          <Sun v-if="theme === 'dark'" :size="16" />
-          <Moon v-else :size="16" />
-        </button>
-        <button class="icon" title="Disconnect" @click="disconnect()"><LogOut :size="16" /></button>
-      </div>
-    </footer>
     </template>
   </aside>
 </template>
@@ -381,64 +338,6 @@ function onSessionsKeydown(event: KeyboardEvent) {
 .empty {
   text-align: center;
   padding: 22px 0;
-}
-.foot {
-  border-top: 1px solid var(--border);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.conn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  color: var(--text-muted);
-}
-.conn-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1;
-}
-.conn-origin {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.conn-status {
-  font-size: 10.5px;
-  color: var(--text-faint);
-}
-.conn-dot {
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-faint);
-}
-.conn.live .conn-dot {
-  background: #4ade80;
-}
-.conn.working .conn-dot {
-  background: var(--accent);
-  animation: opencode-pulse 1.2s ease-in-out infinite;
-}
-.conn.connecting .conn-dot,
-.conn.reconnecting .conn-dot {
-  background: var(--accent);
-}
-@keyframes opencode-pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-.foot-actions {
-  display: flex;
-  gap: 6px;
 }
 .icon {
   display: inline-flex;
