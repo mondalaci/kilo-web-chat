@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
-import { X, Archive, CircleAlert, Check, Copy, Moon, Share2, Sun } from "lucide-vue-next"
+import { X, Archive, CircleAlert, Check, Hash, Moon, Sun } from "lucide-vue-next"
 import type { SessionMessageAssistant } from "@/api/types"
 import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
@@ -8,7 +8,7 @@ import Composer from "./Composer.vue"
 import McpDialog from "./McpDialog.vue"
 import PromptDock from "./PromptDock.vue"
 import { TITLE_SUFFIX } from "@/brand"
-import { sessionURL, useApp } from "@/stores/app"
+import { useApp } from "@/stores/app"
 import { requestComposerFocus } from "@/stores/draft"
 import { requestOpen, shortcutKeys, shortcutsVisible, togglePronunciation } from "@/stores/shortcuts"
 import { searchOpen, openSearch } from "@/stores/search"
@@ -16,7 +16,7 @@ import { theme, toggleTheme } from "@/theme"
 import { formatConversationDate, formatConversationDateTime, formatCost } from "@/utils/format"
 
 const app = useApp()
-const { current, currentID } = app.sessions
+const { current } = app.sessions
 const { error, messages, isBusy, awaitingUser } = app.chat
 const { models, selectedModelInfo } = app.server
 const { newChat } = app
@@ -24,16 +24,16 @@ const { newChat } = app
 /** Whether the open conversation is an archived one being previewed. */
 const isArchived = computed(() => Boolean(current.value?.time?.archived))
 
-/** The per-chat link is the only shareable form a v2 server offers. */
-const copiedLink = ref(false)
+/** Briefly confirm that the session id reached the clipboard. */
+const sessionCopied = ref(false)
 
-async function copyChatLink() {
-  const sessionID = currentID.value
-  if (!sessionID) return
+async function copySessionID() {
+  const id = current.value?.id
+  if (!id) return
   try {
-    await navigator.clipboard.writeText(sessionURL(sessionID))
-    copiedLink.value = true
-    setTimeout(() => (copiedLink.value = false), 1500)
+    await navigator.clipboard.writeText(id)
+    sessionCopied.value = true
+    setTimeout(() => (sessionCopied.value = false), 1500)
   } catch {
     /* clipboard unavailable */
   }
@@ -253,14 +253,14 @@ onBeforeUnmount(() => {
         </button>
         <button
           v-if="current"
-          class="share-btn"
-          :class="{ active: copiedLink }"
-          :title="copiedLink ? 'Link copied' : 'Copy link to this chat'"
-          aria-label="Copy link to this chat"
-          @click="copyChatLink"
+          class="app-btn"
+          :class="{ active: sessionCopied }"
+          :title="sessionCopied ? 'Session id copied' : `Copy session id (${current.id})`"
+          aria-label="Copy session id"
+          @click="copySessionID"
         >
-          <Check v-if="copiedLink" :size="16" />
-          <Share2 v-else :size="16" />
+          <Check v-if="sessionCopied" :size="16" />
+          <Hash v-else :size="16" />
         </button>
       </header>
 
@@ -396,7 +396,7 @@ onBeforeUnmount(() => {
   opacity: 0.5;
 }
 .theme-btn,
-.share-btn {
+.app-btn {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -442,12 +442,11 @@ onBeforeUnmount(() => {
   margin-left: 12px;
 }
 .theme-btn:hover,
-.share-btn:hover {
+.app-btn:hover {
   background: var(--bg-hover);
   color: var(--text);
 }
-.share-btn.copied,
-.share-btn.active {
+.app-btn.active {
   color: #4ade80;
 }
 .bottom {

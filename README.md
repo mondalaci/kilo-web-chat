@@ -232,8 +232,8 @@ src/
 - **Attachments** are sent as `data:` URIs in the prompt's `files` list, which
   the server accepts for files that only exist in the browser. Files echoed back
   on a message are rendered inline (image preview, text preview, download).
-- **Public sharing is gone**: v2 has no share endpoint, so the header button
-  copies a link that reopens the chat in this UI instead of creating a public
+- **Public sharing is gone**: v2 has no share endpoint, so the header offers a
+  `#` button that copies the current session id instead of creating a public
   URL. Sharing can be configured on the server side (`share` in the config).
 - **Tool overrides were dropped**: v2 has no tool-listing endpoint and no
   per-message tool switch — tool availability is expressed as permission rules

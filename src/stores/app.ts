@@ -18,13 +18,6 @@ import {
   writeSessionParam,
 } from "@/utils/url"
 
-/** A chat link that reopens this session in the current UI. */
-export function sessionURL(sessionID: string): string {
-  const url = new URL(window.location.href)
-  url.searchParams.set("session", sessionID)
-  return url.toString()
-}
-
 export function useApp() {
   const connection = useConnection()
   const server = useServer()
