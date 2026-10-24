@@ -30,7 +30,8 @@ targets (see the dependency version in `package.json`).
 - **Session management** — new chat, rename, archive (reversibly) with a
   restore/delete view, project switching, live status.
 - **Conversation search** — server-side title search with cursor paging, plus
-  optional content search through the shared `opencode-search` service; both
+  optional content search through the shared
+  [`opencode-search`](https://github.com/mondalaci/opencode-search) service; both
   scoped to the open project.
 - **Light / dark theme**, responsive sidebar, keyboard shortcuts.
 
@@ -41,10 +42,17 @@ bun install      # or: npm install
 bun run dev      # http://127.0.0.1:4173
 ```
 
-Content search is provided by a sibling checkout, `../opencode-search`, declared
-as a `file:` dependency (see `src/api/search.ts`). Clone it next to this
-repository before installing, or the install step cannot resolve it. Without it
-running, search falls back to the server's own title search.
+Content search is provided by
+[`opencode-search`](https://github.com/mondalaci/opencode-search), a sibling
+checkout declared as a `file:` dependency (see `src/api/search.ts`). Clone it
+next to this repository before installing, or the install step cannot resolve
+it:
+
+```bash
+git clone https://github.com/mondalaci/opencode-search ../opencode-search
+```
+
+Without it running, search falls back to the server's own title search.
 
 Start a server (or use one already running):
 
@@ -254,7 +262,8 @@ src/
   travels with each prompt as admission metadata, so it is per turn and never
   changes the conversation's own model. A picture the tool returns is shown
   even while the tool card stays folded, since it is the point of the call.
-- The optional content-search service (the `opencode-search` sibling
+- The optional content-search service (the
+  [`opencode-search`](https://github.com/mondalaci/opencode-search) sibling
   repository, bound in `src/api/search.ts`) indexes a server database
   independently of the opencode HTTP API. When it is not running, search falls
   back to the server's own title search and cursor paging.
