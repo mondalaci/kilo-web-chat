@@ -1,10 +1,15 @@
 import { ClientError, OpenCode, isUnauthorizedError } from "@opencode/client"
 import type {
   Agent,
+  CommandInfo,
   ConfigEntry,
   FormAnswer,
   FormInfo,
+  IntegrationAttempt,
+  IntegrationAttemptStatus,
+  IntegrationInfo,
   LocationPublicInfo,
+  McpServer,
   Model,
   ModelRef,
   PermissionRequest,
@@ -315,6 +320,110 @@ export class ServerClient {
     return result.data
   }
 
+  /**
+   * The slash commands registered for a location.
+   *
+   * These are the ones the server can run itself — its own built-ins, the
+   * project's `commands/` files and its MCP prompts — and the only names
+   * `runCommand` below accepts.
+   */
+  async commands(directory?: string | null, opts?: CallOptions): Promise<CommandInfo[]> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.command.list(ServerClient.location(directory), requestOptions),
+    )
+    return result.data
+  }
+
+  /* ------------------------------ mcp servers ------------------------------ */
+
+  /** The MCP servers of a location, with the connection state of each. */
+  async mcpServers(directory?: string | null, opts?: CallOptions): Promise<McpServer[]> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.mcp.list(ServerClient.location(directory), requestOptions),
+    )
+    return result.data
+  }
+
+  /** Open a server, which is what a server waiting on a login can never do. */
+  async mcpConnect(server: string, directory?: string | null, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.mcp.connect({ server, ...ServerClient.location(directory) }, requestOptions),
+    )
+  }
+
+  async mcpDisconnect(server: string, directory?: string | null, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.mcp.disconnect({ server, ...ServerClient.location(directory) }, requestOptions),
+    )
+  }
+
+  /* ------------------------------ integrations ----------------------------- */
+
+  /**
+   * An integration and the ways it can be connected.
+   *
+   * A remote MCP server that wants a login registers one of its own, so this is
+   * how the sign-in method for such a server is found.
+   */
+  async integration(
+    integrationID: string,
+    directory?: string | null,
+    opts?: CallOptions,
+  ): Promise<IntegrationInfo> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.integration.get({ integrationID, ...ServerClient.location(directory) }, requestOptions),
+    )
+    return result.data
+  }
+
+  /**
+   * Begin an OAuth sign-in.
+   *
+   * The server listens on its own loopback port for the provider's callback, so
+   * the returned `url` only has to be opened: the attempt completes without the
+   * client's help unless it comes back in `code` mode.
+   */
+  async oauthConnect(
+    integrationID: string,
+    methodID: string,
+    directory?: string | null,
+    opts?: CallOptions,
+  ): Promise<IntegrationAttempt> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.integration.oauth.connect(
+        { integrationID, methodID, ...ServerClient.location(directory) },
+        requestOptions,
+      ),
+    )
+    return result.data
+  }
+
+  async oauthStatus(integrationID: string, attemptID: string, opts?: CallOptions): Promise<IntegrationAttemptStatus> {
+    const result = await this.request(opts, (requestOptions) =>
+      this.sdk.integration.oauth.status({ integrationID, attemptID }, requestOptions),
+    )
+    return result.data
+  }
+
+  /** Hand back the code a `code`-mode attempt is waiting on. */
+  async oauthComplete(
+    integrationID: string,
+    attemptID: string,
+    code: string | undefined,
+    opts?: CallOptions,
+  ): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.integration.oauth.complete({ integrationID, attemptID, code }, requestOptions),
+    )
+  }
+
+  /** Give up on an attempt, so the server stops listening for its callback. */
+  async oauthCancel(integrationID: string, attemptID: string, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.integration.oauth.cancel({ integrationID, attemptID }, requestOptions),
+    )
+  }
+
   /* -------------------------------- sessions -------------------------------- */
 
   async listSessions(
@@ -498,6 +607,37 @@ export class ServerClient {
         requestOptions,
       ),
     )
+  }
+
+  /**
+   * Run a slash command the server knows.
+   *
+   * The command's own template, agent and model are the server's business: this
+   * only hands over the name and the text typed after it, which is what the
+   * template's `$ARGUMENTS` and positional placeholders expand.
+   */
+  async runCommand(
+    sessionID: string,
+    body: { name: string; text: string; files?: PromptFileInput[]; delivery?: "steer" | "queue" },
+    opts?: CallOptions,
+  ): Promise<void> {
+    await this.request(opts, (requestOptions) =>
+      this.sdk.session.command(
+        {
+          sessionID,
+          name: body.name,
+          text: body.text,
+          files: body.files?.map((file) => ({ uri: file.uri, name: file.name })),
+          delivery: body.delivery,
+        },
+        requestOptions,
+      ),
+    )
+  }
+
+  /** Compact the conversation, as `/compact` does. */
+  async compact(sessionID: string, opts?: CallOptions): Promise<void> {
+    await this.request(opts, (requestOptions) => this.sdk.session.compact({ sessionID }, requestOptions))
   }
 
   /* --------------------------- permission and forms -------------------------- */

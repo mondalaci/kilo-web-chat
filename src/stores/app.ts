@@ -212,6 +212,33 @@ export function useApp() {
   }
 
   /**
+   * Hand a slash command to the server.
+   *
+   * A command belongs to a conversation, so an empty pane gets one first —
+   * exactly as `sendMessage` does — and the command then expands into the
+   * prompt that opens it.
+   */
+  async function runCommand(name: string, text: string, files: PromptFileInput[] = []) {
+    const client = connection.client.value
+    if (!client) return
+    let sessionID = sessions.currentID.value
+    if (!sessionID) {
+      const session = await newChat()
+      if (!session) return
+      sessionID = session.id
+    }
+    await chat.runCommand(client, sessionID, { name, text, files })
+  }
+
+  /** Compact the open conversation, as the TUI's `/compact` does. */
+  async function compact() {
+    const client = connection.client.value
+    const sessionID = sessions.currentID.value
+    if (!client || !sessionID) return
+    await chat.compact(client, sessionID)
+  }
+
+  /**
    * Put a conversation out of the way, reversibly.
    *
    * Deleting is offered only from the archive view, which asks for a
@@ -316,6 +343,8 @@ export function useApp() {
     openSessionByID,
     newChat,
     sendMessage,
+    runCommand,
+    compact,
     abort,
     archiveSession,
     openArchive,

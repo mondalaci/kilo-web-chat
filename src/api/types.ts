@@ -9,6 +9,7 @@
 
 export type {
   AbsolutePath,
+  CommandInfo,
   ConfigEntry,
   FormAnswer,
   FormBooleanField,
@@ -24,6 +25,10 @@ export type {
   FormValue,
   LocationPublicInfo,
   LocationPublicRef,
+  IntegrationInfo,
+  IntegrationAttempt,
+  IntegrationAttemptStatus,
+  McpServer,
   ModelCapabilities,
   ModelCost,
   ModelRef,

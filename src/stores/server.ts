@@ -1,7 +1,7 @@
 import { computed, ref } from "vue"
 import type { ServerClient } from "@/api/client"
 import { normalizeOrigin } from "@/api/discovery"
-import type { Agent, Model, ModelRef, Project, Provider, SkillInfo } from "@/api/types"
+import type { Agent, CommandInfo, Model, ModelRef, Project, Provider, SkillInfo } from "@/api/types"
 import { baseCost, isFreeModel, variantIDs } from "@/api/types"
 
 const PREFS_KEY = "opencode-web-chat.prefs"
@@ -50,6 +50,12 @@ const models = ref<Model[]>([])
 const providers = ref<Provider[]>([])
 const connectedProviderIDs = ref<string[]>([])
 const skills = ref<SkillInfo[]>([])
+/**
+ * The slash commands the server can run here, as the composer's `/` menu lists
+ * them. Kept beside the rest of the per-location catalogue because it is
+ * refreshed exactly when they are.
+ */
+const commands = ref<CommandInfo[]>([])
 const projects = ref<Project[]>([])
 const configValues = ref<{ model?: string; defaultAgent?: string; username?: string } | null>(null)
 const serverDefaultModel = ref<ModelRef | null>(null)
@@ -188,7 +194,7 @@ export function useServer() {
       const dir = projectDirectory ?? saved.directory
       directory.value = dir ?? null
 
-      const [agentList, modelList, providerList, projectList, config, defaultModel, credentialIntegrations, skillList] =
+      const [agentList, modelList, providerList, projectList, config, defaultModel, credentialIntegrations, skillList, commandList] =
         await Promise.all([
           client.agents(dir).catch(() => [] as Agent[]),
           client.models(dir).catch(() => [] as Model[]),
@@ -198,6 +204,7 @@ export function useServer() {
           client.defaultModel(dir).catch(() => null),
           client.connectedIntegrations().catch(() => new Set<string>()),
           client.skills(dir).catch(() => [] as SkillInfo[]),
+          client.commands(dir).catch(() => [] as CommandInfo[]),
         ])
 
       agents.value = agentList
@@ -211,6 +218,7 @@ export function useServer() {
         .map((provider) => provider.id)
       connectedProviderIDs.value = [...new Set([...credentialIntegrations, ...withKeys])]
       skills.value = skillList
+      commands.value = commandList
       // Don't clobber the current model when only switching project.
       if (changedOrigin || !selectedModel.value) applyDefaults()
       // A remembered variant can outlive the model it was chosen for — saved
@@ -255,6 +263,7 @@ export function useServer() {
     providers.value = []
     connectedProviderIDs.value = []
     skills.value = []
+    commands.value = []
     projects.value = []
     configValues.value = null
     serverDefaultModel.value = null
@@ -293,6 +302,7 @@ export function useServer() {
     providers,
     connectedProviderIDs,
     skills,
+    commands,
     projects,
     configValues,
     loading,

@@ -5,6 +5,7 @@ import type { SessionMessageAssistant } from "@/api/types"
 import Sidebar from "./Sidebar.vue"
 import MessageThread from "./MessageThread.vue"
 import Composer from "./Composer.vue"
+import McpDialog from "./McpDialog.vue"
 import PromptDock from "./PromptDock.vue"
 import { TITLE_SUFFIX } from "@/brand"
 import { sessionURL, useApp } from "@/stores/app"
@@ -281,6 +282,8 @@ onBeforeUnmount(() => {
         <Composer v-else />
       </div>
     </main>
+
+    <McpDialog />
 
   </div>
 </template>
