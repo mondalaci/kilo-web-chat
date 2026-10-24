@@ -136,9 +136,20 @@ cp public/opencode-web-chat.example.json public/opencode-web-chat.json
 It is a plain static file, so you can edit it on a running deployment and the
 change applies on the next reload — no rebuild or restart.
 
-It carries no settings at the moment: the only one it had preselected an agent,
-and every session now runs on `build`. The file and its loader are kept as the
-hook for a deployment-wide setting (or delete both with the example file).
+The one setting is `hideProjects`, a list of projects to keep out of the sidebar
+picker. Each entry matches either a project's folder name (when it has no `/`)
+or its absolute canonical directory (when it does); `*` matches any run of
+characters except `/`, and `**` matches any run including `/`:
+
+```json
+{
+  "hideProjects": ["scratch", "sandbox-*", "/home/me/repo", "/home/me/archive/**"]
+}
+```
+
+Hidden projects still exist on the server — they are only omitted from this app's
+list, and matching is case-sensitive. An absent or invalid file means nothing is
+hidden.
 
 ## URL parameters
 

@@ -3,6 +3,7 @@ import type { ServerClient } from "@/api/client"
 import { normalizeOrigin } from "@/api/discovery"
 import type { Agent, CommandInfo, Model, ModelRef, Project, Provider, SkillInfo } from "@/api/types"
 import { baseCost, isFreeModel, variantIDs } from "@/api/types"
+import { isProjectHidden, loadRuntimeConfig } from "./runtimeConfig"
 
 const PREFS_KEY = "opencode-web-chat.prefs"
 
@@ -194,7 +195,7 @@ export function useServer() {
       const dir = projectDirectory ?? saved.directory
       directory.value = dir ?? null
 
-      const [agentList, modelList, providerList, projectList, config, defaultModel, credentialIntegrations, skillList, commandList] =
+      const [agentList, modelList, providerList, projectList, config, defaultModel, credentialIntegrations, skillList, commandList, runtimeConfig] =
         await Promise.all([
           client.agents(dir).catch(() => [] as Agent[]),
           client.models(dir).catch(() => [] as Model[]),
@@ -205,12 +206,15 @@ export function useServer() {
           client.connectedIntegrations().catch(() => new Set<string>()),
           client.skills(dir).catch(() => [] as SkillInfo[]),
           client.commands(dir).catch(() => [] as CommandInfo[]),
+          loadRuntimeConfig(),
         ])
 
       agents.value = agentList
       models.value = modelList
       providers.value = providerList
-      projects.value = projectList
+      projects.value = projectList.filter(
+        (project) => !isProjectHidden(project.canonical, runtimeConfig.hideProjects),
+      )
       configValues.value = config
       serverDefaultModel.value = defaultModel ? { id: defaultModel.modelID, providerID: defaultModel.providerID } : null
       const withKeys = providerList
